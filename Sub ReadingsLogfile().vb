@@ -45,6 +45,28 @@ Private Sub InitializeColors()
 End Sub
 
 '/**
+' * Makes the header row bold
+' */
+Sub BoldHeaderRow()
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    ' Find the last column with data
+    Dim lastCol As Long
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    
+    ' Make the entire header row bold
+    ws.Range(ws.Cells(1, 1), ws.Cells(1, lastCol)).Font.Bold = True
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error in BoldHeaderRow: " & Err.Description, vbExclamation
+End Sub
+
+'/**
 ' * Renames headers according to specified mapping
 ' */
 Sub RenameHeaders()
@@ -168,10 +190,10 @@ Sub FormatDecimalPlaces()
                 Case 3
                     ws.Range(ws.Cells(2, col), ws.Cells(lastRow, col)).NumberFormat = "0.000"
                 Case 4
-                    ws.Range(ws.Cells(2, col), ws.Cells(lastRow, col)).NumberFormat = "0.0000"
+                    ws.Range(ws.Cells(2, col), ws.Cells(lastRow, col)).NumberFormat = "0.000"
                 Case Else
-                    ' For more than 4 decimal places, use general format
-                    ws.Range(ws.Cells(2, col), ws.Cells(lastRow, col)).NumberFormat = "0.0000"
+                    ' For more than 4 decimal places, use 3 decimal format
+                    ws.Range(ws.Cells(2, col), ws.Cells(lastRow, col)).NumberFormat = "0.000"
             End Select
         Else
             ' Apply general number format for columns without decimals
@@ -351,6 +373,11 @@ Sub ReadingsLogfile()
     Application.StatusBar = "Renaming headers..."
     DoEvents
     Call RenameHeaders
+    
+    ' Bold the header row
+    Application.StatusBar = "Bolding header row..."
+    DoEvents
+    Call BoldHeaderRow
     
     ' Format datetime in column A
     Application.StatusBar = "Formatting datetime column..."
