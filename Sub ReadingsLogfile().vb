@@ -12,15 +12,10 @@
 Private Const LPH2_COLUMN As Integer = 10          ' Column J (lph2)
 Private Const SOLENOID_COLUMN As Integer = 19      ' Column S (solenoid)
 Private Const FLAMEOUT_COLUMN As Integer = 13      ' Column M (iTemp - internal temp)
-Private Const VACUUM_COLUMN As Integer = 12        ' Column L (vac)
-Private Const VOLTAGE_COLUMN As Integer = 22       ' Column V (volts)
-Private Const FILTER_COLUMN As Integer = 29        ' Column AC (reporting status)
 Private Const IS_IGNITED_COLUMN As Integer = 24    ' Column X (is ignited)
 
 ' Constants for thresholds
-Private Const FLAMEOUT_THRESHOLD As Double = 100
 Private Const MIN_OPERATING_TEMP As Double = 100     ' Minimum temperature to consider as operating
-Private Const TEMP_DROP_THRESHOLD As Double = 20    ' Temperature drop to trigger flameout detection
 Private Const STEADY_STATE_SAMPLES As Integer = 5    ' Minimum samples to establish normal operating range
 Private Const STEADY_STATE_THRESHOLD As Double = 0.005
 Private Const BLIP_THRESHOLD As Double = 0.05
@@ -31,8 +26,6 @@ Private Const VACUUM_RED_THRESHOLD As Double = -1.0
 ' Color variables (initialized at runtime)
 Private COLOR_LIGHT_GREEN As Long
 Private COLOR_LIGHT_RED As Long
-Private COLOR_DARK_RED As Long
-Private COLOR_LIGHT_RED_START As Long
 
 '/**
 ' * Initialize color variables
@@ -40,8 +33,6 @@ Private COLOR_LIGHT_RED_START As Long
 Private Sub InitializeColors()
     COLOR_LIGHT_GREEN = RGB(144, 238, 144)
     COLOR_LIGHT_RED = RGB(255, 182, 193)
-    COLOR_DARK_RED = RGB(139, 0, 0)
-    COLOR_LIGHT_RED_START = RGB(255, 160, 122)
 End Sub
 
 '/**
@@ -114,8 +105,6 @@ Sub RenameHeaders()
                 headerRow.Cells(1, col).Value = "MOV"
         End Select
     Next col
-    
-
     
     Exit Sub
     
@@ -202,8 +191,6 @@ Sub FormatDecimalPlaces()
         
 NextColumn:
     Next col
-    
-
     
     Exit Sub
     
@@ -318,8 +305,6 @@ Sub AutoSizeAllColumns()
     
     ' Auto-size all columns from 1 to lastCol
     ws.Range(ws.Cells(1, 1), ws.Cells(1, lastCol)).EntireColumn.AutoFit
-    
-
     
     Exit Sub
     
@@ -439,21 +424,6 @@ ErrorHandler:
 End Sub
 
 '/**
-' * Sets up the worksheet view with frozen panes and formatting
-' */
-Private Sub SetupWorksheetView()
-    Range("A1").Activate
-    
-    With ActiveWindow
-        .SplitColumn = 0
-        .SplitRow = 1
-    End With
-    
-    ActiveWindow.FreezePanes = True
-    Cells.FormatConditions.Delete
-End Sub
-
-'/**
 ' * Creates a backup of the original data in a new sheet named "RAW"
 ' */
 Sub CreateBackupSheet()
@@ -521,93 +491,6 @@ Sub ColorRowsVoltage()
 ErrorHandler:
     MsgBox "Error in ColorRowsVoltage: " & Err.Description, vbExclamation
 End Sub
-
-'/**
-' * Deletes blank rows from the worksheet
-' */
-Sub DeleteBlankRows()
-    On Error GoTo ErrorHandler
-    
-    Application.ScreenUpdating = False
-    
-    Dim ws As Worksheet
-    Set ws = ActiveSheet
-    
-    Dim lastRow As Long
-    lastRow = ws.Cells.SpecialCells(xlCellTypeLastCell).Row
-    
-    Dim i As Long
-    For i = lastRow To 1 Step -1
-        If WorksheetFunction.CountA(ws.Rows(i)) = 0 Then
-            ws.Rows(i).Delete
-        End If
-    Next i
-    
-    Application.ScreenUpdating = True
-    Exit Sub
-    
-ErrorHandler:
-    Application.ScreenUpdating = True
-    MsgBox "Error in DeleteBlankRows: " & Err.Description, vbExclamation
-End Sub
-
-'/**
-' * Determines the normal operating temperature range from the data
-' * Returns the minimum normal operating temperature
-' */
-Private Function DetermineNormalOperatingTemp(ws As Worksheet, lastRow As Long) As Double
-    On Error GoTo ErrorHandler
-    
-    Dim i As Long
-    Dim value As Double
-    Dim solenoid As Variant
-    Dim tempSum As Double
-    Dim tempCount As Integer
-    Dim tempMin As Double
-    Dim tempMax As Double
-    Dim tempAvg As Double
-    
-    ' Initialize counters
-    tempSum = 0
-    tempCount = 0
-    tempMin = 999999
-    tempMax = 0
-    
-    ' First pass: collect all temperatures above minimum operating temp
-    For i = 2 To lastRow
-        If IsNumeric(ws.Cells(i, FLAMEOUT_COLUMN).Value) Then
-            value = ws.Cells(i, FLAMEOUT_COLUMN).Value
-            solenoid = ws.Cells(i, SOLENOID_COLUMN).Value
-            
-            ' Only consider temperatures when solenoid is on and above minimum operating temp
-            If solenoid = 1 And value >= MIN_OPERATING_TEMP Then
-                tempCount = tempCount + 1
-                tempSum = tempSum + value
-                If value < tempMin Then tempMin = value
-                If value > tempMax Then tempMax = value
-            End If
-        End If
-    Next i
-    
-    ' If we have enough data points, calculate normal operating range
-    If tempCount >= STEADY_STATE_SAMPLES Then
-        tempAvg = tempSum / tempCount
-        
-        ' Use the minimum temperature as the baseline, but ensure it's at least MIN_OPERATING_TEMP
-        ' Add a small buffer (5°C) to account for normal variations
-        DetermineNormalOperatingTemp = Application.Max(tempMin - 5, MIN_OPERATING_TEMP)
-    Else
-        ' Fallback to minimum operating temperature
-        DetermineNormalOperatingTemp = MIN_OPERATING_TEMP
-    End If
-    
-    Exit Function
-    
-ErrorHandler:
-    DetermineNormalOperatingTemp = MIN_OPERATING_TEMP
-End Function
-
-
 
 '/**
 ' * Identifies and highlights flameout events using is ignited status and temperature drops
@@ -805,228 +688,6 @@ ErrorHandler:
 End Sub
 
 '/**
-' * Finds the start row of a flameout event
-' */
-Private Function FindFlameoutStart(ws As Worksheet, currentRow As Long) As Long
-    Dim startRow As Long
-    startRow = currentRow
-    
-    ' Find steady state temperature (average of last 5 readings before drop)
-    Dim steadyStateTemp As Double
-    Dim steadyStateCount As Integer
-    Dim lookBack As Integer
-    steadyStateTemp = 0
-    steadyStateCount = 0
-    
-    For lookBack = 1 To 5
-        If startRow - lookBack >= 2 And _
-           IsNumeric(ws.Cells(startRow - lookBack, FLAMEOUT_COLUMN).Value) Then
-            steadyStateTemp = steadyStateTemp + ws.Cells(startRow - lookBack, FLAMEOUT_COLUMN).Value
-            steadyStateCount = steadyStateCount + 1
-        End If
-    Next lookBack
-    
-    If steadyStateCount > 0 Then
-        steadyStateTemp = steadyStateTemp / steadyStateCount
-    End If
-    
-    Dim tempDropThreshold As Double
-    tempDropThreshold = 5  ' Minimum temperature drop to consider as start of flameout
-    
-    Do While startRow > 2 And startRow <= ws.Cells(ws.Rows.Count, 1).End(xlUp).Row And _
-           IsNumeric(ws.Cells(startRow, FLAMEOUT_COLUMN).Value) And _
-           IsNumeric(ws.Cells(startRow - 1, FLAMEOUT_COLUMN).Value) And _
-           ws.Cells(startRow, FLAMEOUT_COLUMN).Value < ws.Cells(startRow - 1, FLAMEOUT_COLUMN).Value And _
-           (steadyStateTemp - ws.Cells(startRow, FLAMEOUT_COLUMN).Value) > tempDropThreshold
-        startRow = startRow - 1
-    Loop
-    
-    FindFlameoutStart = startRow
-End Function
-
-'/**
-' * Applies flameout formatting with color gradient
-' */
-Private Sub ApplyFlameoutFormatting(cell As Range, peak As Double)
-    Dim value As Double
-    value = cell.Value
-    
-    Dim intensity As Double
-    intensity = (peak - value) / (peak - 20)
-    intensity = Application.Max(0, Application.Min(1, intensity))
-    
-    ' Interpolate from light red to dark red
-    Dim red As Integer, green As Integer, blue As Integer
-    red = 255 - intensity * (255 - 139)
-    green = 160 - intensity * 160
-    blue = 122 - intensity * 122
-    
-    cell.Interior.Color = RGB(red, green, blue)
-    
-    ' Contrasting text color
-    If intensity > 0.5 Then
-        cell.Font.Color = RGB(255, 255, 255)  ' White for darker shades
-    Else
-        cell.Font.Color = RGB(0, 0, 0)  ' Black for lighter shades
-    End If
-End Sub
-
-'/**
-' * Clears cell formatting
-' */
-Private Sub ClearCellFormatting(cell As Range)
-    cell.Interior.ColorIndex = xlNone
-    cell.Font.Color = RGB(0, 0, 0)
-End Sub
-
-'/**
-' * Highlights steady state and blips in LPH2 data
-' */
-Sub HighlightSteadyAndBlips()
-    On Error GoTo ErrorHandler
-    
-    Application.ScreenUpdating = False
-    
-    Dim ws As Worksheet
-    Set ws = ActiveSheet
-    
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    
-    Dim i As Long
-    Dim previous As Double
-    Dim value As Double
-    Dim delta As Double
-    Dim solenoid As Variant
-    
-    previous = 0 ' Initialize previous value
-    
-    For i = 2 To lastRow
-        If IsNumeric(ws.Cells(i, LPH2_COLUMN).Value) Then
-            value = ws.Cells(i, LPH2_COLUMN).Value
-            solenoid = ws.Cells(i, SOLENOID_COLUMN).Value
-            
-            If solenoid = 1 Then
-                delta = value - previous
-                
-                ' Steady state: small change from previous, make text green
-                If Abs(delta) < STEADY_STATE_THRESHOLD Then
-                    ws.Cells(i, LPH2_COLUMN).Font.Color = RGB(0, 255, 0)
-                End If
-                
-                ' Blip: large change, fill based on positive/negative
-                If Abs(delta) > BLIP_THRESHOLD And value < STEADY_STATE_MAX And previous < STEADY_STATE_MAX Then
-                    If delta > 0 Then
-                        ws.Cells(i, LPH2_COLUMN).Interior.Color = COLOR_LIGHT_GREEN
-                    Else
-                        ws.Cells(i, LPH2_COLUMN).Interior.Color = COLOR_LIGHT_RED
-                    End If
-                End If
-            End If
-            
-            ' Update previous regardless
-            previous = value
-        End If
-    Next i
-    
-    Application.ScreenUpdating = True
-    Exit Sub
-    
-ErrorHandler:
-    Application.ScreenUpdating = True
-    MsgBox "Error in HighlightSteadyAndBlips: " & Err.Description, vbExclamation
-End Sub
-
-'/**
-' * Renames CSV files to XLSX format
-' */
-Sub RenameFiles()
-    On Error GoTo ErrorHandler
-    
-    Dim strFile As String
-    Dim newName As String
-    Dim filePath As String
-    
-    filePath = ActiveWorkbook.Path & "\"
-    strFile = Dir(filePath & "*.csv")
-    
-    Do While Len(strFile) > 0
-        newName = Replace(strFile, ".csv", ".xlsx")
-        Name filePath & strFile As filePath & newName
-        strFile = Dir
-    Loop
-    
-    With ActiveWorkbook
-        Application.DisplayAlerts = False
-        .SaveAs .Name, xlNormal
-        Application.DisplayAlerts = True
-    End With
-    
-    Exit Sub
-    
-ErrorHandler:
-    Application.DisplayAlerts = True
-    MsgBox "Error in RenameFiles: " & Err.Description, vbExclamation
-End Sub
-
-'/**
-' * Saves workbook with new name in Downloads folder
-' */
-Sub TryAgain()
-    On Error GoTo ErrorHandler
-    
-    Dim outputFile As String
-    
-    With ActiveWorkbook
-        outputFile = Replace(.Name, ".csv", "") & ".xlsx"
-        
-        If outputFile <> False Then
-            Application.DisplayAlerts = False
-            .SaveAs "/Users/kevinmoses/Downloads/" & outputFile, 51
-            Application.DisplayAlerts = True
-        End If
-    End With
-    
-    Exit Sub
-    
-ErrorHandler:
-    Application.DisplayAlerts = True
-    MsgBox "Error in TryAgain: " & Err.Description, vbExclamation
-End Sub
-
-'/**
-' * Applies icon set formatting to column L
-' */
-Sub ApplyIconSetFormatting()
-    On Error GoTo ErrorHandler
-    
-    Range("L:L").FormatConditions.AddIconSetCondition
-    
-    With Selection.FormatConditions(1)
-        .ReverseOrder = False
-        .ShowIconOnly = False
-        .IconSet = ActiveWorkbook.IconSets(xl3Arrows)
-    End With
-    
-    With Selection.FormatConditions(1).IconCriteria(2)
-        .Type = xlConditionValuePercent
-        .Value = 33
-        .Operator = 7
-    End With
-    
-    With Selection.FormatConditions(1).IconCriteria(3)
-        .Type = xlConditionValuePercent
-        .Value = 67
-        .Operator = 7
-    End With
-    
-    Exit Sub
-    
-ErrorHandler:
-    MsgBox "Error in ApplyIconSetFormatting: " & Err.Description, vbExclamation
-End Sub
-
-'/**
 ' * Applies conditional formatting to vacuum column
 ' */
 Sub ColorRowsVacuum()
@@ -1063,68 +724,6 @@ Sub ColorRowsVacuum()
     
 ErrorHandler:
     MsgBox "Error in ColorRowsVacuum: " & Err.Description, vbExclamation
-End Sub
-
-'/**
-' * Automatically sizes the window to fit the data columns
-' */
-Sub SetWindowSizeToFitData()
-    On Error GoTo ErrorHandler
-    
-    Dim ws As Worksheet
-    Set ws = ActiveSheet
-    
-    ' Find the last column with data
-    Dim lastCol As Long
-    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
-    
-    ' Calculate total width needed for all columns
-    Dim totalWidth As Double
-    Dim col As Long
-    totalWidth = 0
-    
-    For col = 1 To lastCol
-        totalWidth = totalWidth + ws.Columns(col).Width
-    Next col
-    
-    ' Add some padding for scrollbars and borders
-    totalWidth = totalWidth + 50
-    
-    ' Set window state first
-    Application.WindowState = xlNormal
-    
-    ' Try to get screen dimensions, but don't fail if not available on macOS
-    Dim screenWidth As Double
-    Dim screenHeight As Double
-    
-    On Error Resume Next
-    screenWidth = Application.Width
-    screenHeight = Application.Height
-    On Error GoTo ErrorHandler
-    
-    ' Use default values if screen dimensions aren't available
-    If screenWidth = 0 Then screenWidth = 1200
-    If screenHeight = 0 Then screenHeight = 800
-    
-    ' Limit width to screen size
-    If totalWidth > screenWidth * 0.9 Then
-        totalWidth = screenWidth * 0.9
-    End If
-    
-    ' Try to set window size, but don't fail if properties aren't available on macOS
-    On Error Resume Next
-    Application.Width = totalWidth
-    Application.Height = screenHeight * 0.8
-    
-    ' Try to center the window, but don't fail if positioning doesn't work on macOS
-    Application.Left = (screenWidth - totalWidth) / 2
-    Application.Top = (screenHeight - Application.Height) / 2
-    On Error GoTo ErrorHandler
-    
-    Exit Sub
-    
-ErrorHandler:
-    MsgBox "Error in SetWindowSizeToFitData: " & Err.Description, vbExclamation
 End Sub
 
 '/**
@@ -1414,7 +1013,6 @@ Sub ProcessIgnitionStates()
     lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     
     ' Constants for column positions
-    Const IS_IGNITED_COLUMN As Integer = 24    ' Column X (is ignited)
     Const MESSAGE_COLUMN As Integer = 30       ' Column AD (message)
     Const COLUMN_B As Integer = 2              ' Column B
     

@@ -1,1 +1,0 @@
-Log Time,Received Time,picoamps,ppm,pa offset,sample pressure,sample PPL,combustion pressure,combustion PPL,lph2,hph2,vac,internal temp.,external temp.,case temp.,needle valve,heater,glow plug,solenoid,battery status,battery charge,volts,current,is ignited,p1 tgt,p2 tgt,h2 tgt,altimeter,reporting status,message

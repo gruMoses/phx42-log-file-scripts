@@ -116,6 +116,8 @@ The `Sub ReadingsLogfile().vb` script contains the following main functions:
 - **`ProcessIgnitionStates()`**: Processes ignition state changes
 - **`SaveAsExcelFile()`**: Saves processed data as Excel file
 
+**Note**: The script has been cleaned up to remove unused functions and variables, improving maintainability and reducing code complexity.
+
 ### Required Data Format
 The script expects CSV files with the following columns:
 - **Column A**: Timestamp
@@ -466,11 +468,12 @@ cat ~/Documents/vb_script_version.log
 
 ## Version History
 
-### Current Version: 2.0
+### Current Version: 2.1
 - Enhanced flameout detection
 - Improved performance for large datasets
 - Better error handling
 - macOS-specific optimizations
+- **Code cleanup**: Removed unused functions and variables for improved maintainability
 
 ### Previous Versions
 - **Version 1.0**: Initial release with basic functionality
@@ -485,4 +488,4 @@ This script is provided as-is for educational and personal use. Please ensure yo
 **Last Updated**: December 2024  
 **Compatibility**: Excel for Mac 16.0+  
 **Author**: Kevin Moses  
-**Version**: 2.0 
+**Version**: 2.1 
