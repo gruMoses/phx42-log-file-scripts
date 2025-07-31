@@ -403,6 +403,16 @@ Sub ReadingsLogfile()
     DoEvents
     Call AutoSizeAllColumns
     
+    ' Find and process firmware logs
+    Application.StatusBar = "Finding firmware logs..."
+    DoEvents
+    Call FindFirmwareLogs
+    
+    ' Parse firmware log contents
+    Application.StatusBar = "Parsing firmware log contents..."
+    DoEvents
+    Call ParseFirmwareLogContents
+    
     ' Save as Excel file
     Application.StatusBar = "Saving processed file..."
     DoEvents
@@ -1103,3 +1113,559 @@ ErrorHandler:
     Application.ScreenUpdating = True
     MsgBox "Error in ProcessIgnitionStates: " & Err.Description, vbExclamation
 End Sub
+
+'/**
+' * Finds firmware logs in the same folder as the current file
+' * Filters by date from current filename and lists them in a new sheet
+' */
+Sub FindFirmwareLogs()
+    On Error GoTo ErrorHandler
+    
+    Application.ScreenUpdating = False
+    
+    ' Get current working directory and filename
+    Dim currentPath As String
+    Dim currentFileName As String
+    Dim targetDate As String
+    Dim serialNumber As String
+    
+    currentPath = CurDir()
+    currentFileName = ActiveWorkbook.Name
+    
+    ' Extract date and serial number from current filename
+    targetDate = ExtractDateFromFileName(currentFileName)
+    serialNumber = ExtractSerialNumber()
+    
+    ' If no date found, use a default name
+    If targetDate = "" Then
+        targetDate = "UnknownDate"
+    End If
+    
+    ' Create new worksheet for firmware logs
+    Dim ws As Worksheet
+    Dim sheetName As String
+    sheetName = "FirmwareLogs_" & targetDate
+    
+    ' Check if sheet already exists and delete it
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo ErrorHandler
+    
+    If Not ws Is Nothing Then
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+    End If
+    
+    ' Create new sheet
+    Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+    ws.Name = sheetName
+    
+    ' Set up headers
+    ws.Cells(1, 1).Value = "Filename"
+    ws.Cells(1, 2).Value = "Date"
+    ws.Cells(1, 3).Value = "Serial Number"
+    ws.Cells(1, 4).Value = "Log Type"
+    ws.Cells(1, 5).Value = "File Size (KB)"
+    ws.Cells(1, 6).Value = "Full Path"
+    
+    ' Format headers
+    ws.Range("A1:F1").Font.Bold = True
+    ws.Range("A1:F1").Interior.Color = RGB(200, 200, 200)
+    
+    ' Search for firmware logs
+    Dim filePattern As String
+    Dim fileName As String
+    Dim filePath As String
+    Dim row As Long
+    Dim fileCount As Long
+    
+    row = 2
+    fileCount = 0
+    
+    ' Search for files with FirmwareLog in the name
+    fileName = Dir(currentPath & "*FirmwareLog*")
+    
+    Do While fileName <> ""
+        ' Check if file matches our date and serial number pattern
+        If IsFirmwareLogFile(fileName, targetDate, serialNumber) Then
+            filePath = currentPath & fileName
+            
+            ' Extract components from filename
+            Dim fileDate As String
+            Dim fileSN As String
+            Dim logType As String
+            
+            ParseFirmwareLogFileName fileName, fileDate, fileSN, logType
+            
+            ' Get file size
+            Dim fileSize As Long
+            fileSize = FileLen(filePath)
+            
+            ' Add to worksheet
+            ws.Cells(row, 1).Value = fileName
+            ws.Cells(row, 2).Value = fileDate
+            ws.Cells(row, 3).Value = fileSN
+            ws.Cells(row, 4).Value = logType
+            ws.Cells(row, 5).Value = Round(fileSize / 1024, 2)  ' Convert to KB
+            ws.Cells(row, 6).Value = filePath
+            
+            row = row + 1
+            fileCount = fileCount + 1
+        End If
+        
+        fileName = Dir()
+    Loop
+    
+    ' Auto-fit columns
+    ws.Columns("A:F").AutoFit
+    
+    ' Add summary information
+    ws.Cells(row + 1, 1).Value = "Summary:"
+    ws.Cells(row + 1, 1).Font.Bold = True
+    ws.Cells(row + 2, 1).Value = "Date Filter:"
+    ws.Cells(row + 2, 2).Value = targetDate
+    ws.Cells(row + 3, 1).Value = "Serial Number:"
+    ws.Cells(row + 3, 2).Value = serialNumber
+    ws.Cells(row + 4, 1).Value = "Files Found:"
+    ws.Cells(row + 4, 2).Value = fileCount
+    
+    ' Activate the new sheet
+    ws.Activate
+    
+    Application.ScreenUpdating = True
+    
+    ' Always show a message about the search results
+    If fileCount > 0 Then
+        MsgBox "Found " & fileCount & " firmware log files for date " & targetDate & "." & vbNewLine & _
+               "Results listed in sheet: " & sheetName & vbNewLine & _
+               "Searched in: " & currentPath, vbInformation
+    Else
+        MsgBox "No firmware log files found for date " & targetDate & "." & vbNewLine & _
+               "Searched in: " & currentPath & vbNewLine & _
+               "Sheet '" & sheetName & "' created with empty results.", vbInformation
+    End If
+    
+    Exit Sub
+    
+ErrorHandler:
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    MsgBox "Error in FindFirmwareLogs: " & Err.Description, vbExclamation
+End Sub
+
+'/**
+' * Parses the contents of firmware log files and creates a new sheet with the data
+' * Extracts date, time, and message from each log entry
+' * Filters out entries older than the date from current filename
+' */
+Sub ParseFirmwareLogContents()
+    On Error GoTo ErrorHandler
+    
+    Application.ScreenUpdating = False
+    
+    ' Get current working directory and filename
+    Dim currentPath As String
+    Dim currentFileName As String
+    Dim targetDate As String
+    Dim serialNumber As String
+    
+    currentPath = CurDir()
+    currentFileName = ActiveWorkbook.Name
+    
+    ' Extract date and serial number from current filename
+    targetDate = ExtractDateFromFileName(currentFileName)
+    serialNumber = ExtractSerialNumber()
+    
+    ' If no date found, use a default name
+    If targetDate = "" Then
+        targetDate = "UnknownDate"
+    End If
+    
+    ' Create new worksheet for firmware log contents
+    Dim ws As Worksheet
+    Dim sheetName As String
+    sheetName = "FirmwareLogContents_" & targetDate
+    
+    ' Check if sheet already exists and delete it
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo ErrorHandler
+    
+    If Not ws Is Nothing Then
+        Application.DisplayAlerts = False
+        ws.Delete
+        Application.DisplayAlerts = True
+    End If
+    
+    ' Create new sheet
+    Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+    ws.Name = sheetName
+    
+    ' Set up headers
+    ws.Cells(1, 1).Value = "Date"
+    ws.Cells(1, 2).Value = "Time"
+    ws.Cells(1, 3).Value = "Message"
+    ws.Cells(1, 4).Value = "Source File"
+    
+    ' Format headers
+    ws.Range("A1:D1").Font.Bold = True
+    ws.Range("A1:D1").Interior.Color = RGB(200, 200, 200)
+    
+    ' Calculate cutoff date (date from current filename)
+    Dim cutoffDate As Date
+    If targetDate <> "UnknownDate" Then
+        ' Convert YYYYMMDD format to Date
+        cutoffDate = DateSerial(CInt(Left(targetDate, 4)), CInt(Mid(targetDate, 5, 2)), CInt(Right(targetDate, 2)))
+    Else
+        ' Fallback to current date if no date found in filename
+        cutoffDate = Date
+    End If
+    
+    ' Search for firmware log files
+    Dim fileName As String
+    Dim filePath As String
+    Dim row As Long
+    Dim totalEntries As Long
+    Dim filesProcessed As Long
+    
+    row = 2
+    totalEntries = 0
+    filesProcessed = 0
+    
+    ' Use a dynamic approach that finds files with spaces in names
+    Dim fileCount As Long
+    fileCount = 0
+    
+    ' Search for files with different patterns to handle spaces
+    Dim searchPatterns(1 To 3) As String
+    searchPatterns(1) = "*FirmwareLog.log"
+    searchPatterns(2) = "*FirmwareLog *.log"  ' Pattern for files with space and number
+    searchPatterns(3) = "*FirmwareLog*.log"   ' Fallback pattern
+    
+    Dim i As Integer
+    Dim foundFiles As String
+    foundFiles = ""
+    
+    For i = 1 To 3
+        fileName = Dir(currentPath & searchPatterns(i))
+        Do While fileName <> ""
+            ' Check if we already found this file (avoid duplicates)
+            If InStr(foundFiles, fileName) = 0 Then
+                foundFiles = foundFiles & fileName & "|"
+                fileCount = fileCount + 1
+                
+                ' Check if file matches our criteria
+                If IsFirmwareLogFile(fileName, targetDate, serialNumber) Then
+                    filePath = currentPath & fileName
+                    filesProcessed = filesProcessed + 1
+                    
+                    ' Parse the log file
+                    Call ParseSingleFirmwareLog(filePath, ws, row, cutoffDate, totalEntries)
+                End If
+            End If
+            fileName = Dir()
+        Loop
+    Next i
+    
+    ' Auto-fit columns
+    ws.Columns("A:D").AutoFit
+    
+    ' Sort the data by time (column B) if we have data
+    If row > 2 Then
+        ' Define the range to sort (from row 2 to the last data row, columns A to D)
+        Dim sortRange As Range
+        Set sortRange = ws.Range("A2:D" & (row - 1))
+        
+        ' Sort by time column (B) in ascending order
+        With ws.Sort
+            .SortFields.Clear
+            .SortFields.Add Key:=ws.Range("B2"), Order:=xlAscending
+            .SetRange sortRange
+            .Header = xlNo
+            .Apply
+        End With
+    End If
+    
+    ' Add summary information
+    ws.Cells(row + 1, 1).Value = "Summary:"
+    ws.Cells(row + 1, 1).Font.Bold = True
+    ws.Cells(row + 2, 1).Value = "Date Filter:"
+    ws.Cells(row + 2, 2).Value = targetDate
+    ws.Cells(row + 3, 1).Value = "Serial Number:"
+    ws.Cells(row + 3, 2).Value = serialNumber
+    ws.Cells(row + 4, 1).Value = "Total Entries:"
+    ws.Cells(row + 4, 2).Value = totalEntries
+    ws.Cells(row + 5, 1).Value = "Files Processed:"
+    ws.Cells(row + 5, 2).Value = filesProcessed
+    ws.Cells(row + 6, 1).Value = "Cutoff Date:"
+    ws.Cells(row + 6, 2).Value = cutoffDate
+    
+    ' Activate the new sheet
+    ws.Activate
+    
+    Application.ScreenUpdating = True
+    
+    ' Show completion message
+    MsgBox "Parsed " & totalEntries & " log entries from " & filesProcessed & " firmware log files." & vbNewLine & _
+           "Results listed in sheet: " & sheetName & vbNewLine & _
+           "Filtered to date from filename: " & cutoffDate, vbInformation
+    
+    Exit Sub
+    
+ErrorHandler:
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    MsgBox "Error in ParseFirmwareLogContents: " & Err.Description, vbExclamation
+End Sub
+
+'/**
+' * Extracts date from filename in format YYYYMMDD_SN_LogType
+' */
+Function ExtractDateFromFileName(fileName As String) As String
+    On Error GoTo ErrorHandler
+    
+    Dim dateStr As String
+    Dim underscorePos As Integer
+    
+    ' Find first underscore
+    underscorePos = InStr(fileName, "_")
+    
+    If underscorePos > 0 Then
+        ' Extract the part before first underscore
+        dateStr = Left(fileName, underscorePos - 1)
+        
+        ' Check if it's a valid date format (8 digits)
+        If Len(dateStr) = 8 And IsNumeric(dateStr) Then
+            ExtractDateFromFileName = dateStr
+            Exit Function
+        End If
+    End If
+    
+    ExtractDateFromFileName = ""
+    Exit Function
+    
+ErrorHandler:
+    ExtractDateFromFileName = ""
+End Function
+
+'/**
+' * Checks if a file is a firmware log file matching the target date and serial number
+' */
+Function IsFirmwareLogFile(fileName As String, targetDate As String, serialNumber As String) As Boolean
+    On Error GoTo ErrorHandler
+    
+    ' Check if filename contains "FirmwareLog"
+    If InStr(1, LCase(fileName), "firmwarelog") = 0 Then
+        IsFirmwareLogFile = False
+        Exit Function
+    End If
+    
+    ' Check if file has .log extension
+    If LCase(Right(fileName, 4)) <> ".log" Then
+        IsFirmwareLogFile = False
+        Exit Function
+    End If
+    
+    ' Check if filename starts with target date (skip if UnknownDate)
+    ' The firmware log files have format: YYYYMMDD_phx42-XXXX_FirmwareLog.log
+    ' So we need to check if the filename starts with the target date followed by underscore
+    If targetDate <> "UnknownDate" Then
+        Dim expectedPrefix As String
+        expectedPrefix = targetDate & "_"
+        If Left(fileName, Len(expectedPrefix)) <> expectedPrefix Then
+            IsFirmwareLogFile = False
+            Exit Function
+        End If
+    End If
+    
+    ' Check if filename contains the serial number (if we have one)
+    If serialNumber <> "" Then
+        If InStr(1, fileName, serialNumber) = 0 Then
+            IsFirmwareLogFile = False
+            Exit Function
+        End If
+    End If
+    
+    IsFirmwareLogFile = True
+    Exit Function
+    
+ErrorHandler:
+    IsFirmwareLogFile = False
+End Function
+
+'/**
+' * Parses firmware log filename to extract date, serial number, and log type
+' */
+Sub ParseFirmwareLogFileName(fileName As String, ByRef fileDate As String, ByRef fileSN As String, ByRef logType As String)
+    On Error GoTo ErrorHandler
+    
+    Dim underscorePos1 As Integer
+    Dim underscorePos2 As Integer
+    Dim dotPos As Integer
+    
+    ' Find positions of underscores
+    underscorePos1 = InStr(fileName, "_")
+    underscorePos2 = InStr(underscorePos1 + 1, fileName, "_")
+    
+    If underscorePos1 > 0 Then
+        ' Extract date (first 8 characters)
+        fileDate = Left(fileName, 8)
+        
+        If underscorePos2 > 0 Then
+            ' Extract serial number (between first and second underscore)
+            fileSN = Mid(fileName, underscorePos1 + 1, underscorePos2 - underscorePos1 - 1)
+            
+            ' Extract log type (between second underscore and dot)
+            dotPos = InStrRev(fileName, ".")
+            If dotPos > underscorePos2 Then
+                logType = Mid(fileName, underscorePos2 + 1, dotPos - underscorePos2 - 1)
+            Else
+                logType = Mid(fileName, underscorePos2 + 1)
+            End If
+        Else
+            ' Only one underscore found
+            dotPos = InStrRev(fileName, ".")
+            If dotPos > underscorePos1 Then
+                fileSN = Mid(fileName, underscorePos1 + 1, dotPos - underscorePos1 - 1)
+                logType = "Unknown"
+            Else
+                fileSN = Mid(fileName, underscorePos1 + 1)
+                logType = "Unknown"
+            End If
+        End If
+    Else
+        fileDate = "Unknown"
+        fileSN = "Unknown"
+        logType = "Unknown"
+    End If
+    
+    Exit Sub
+    
+ErrorHandler:
+    fileDate = "Error"
+    fileSN = "Error"
+    logType = "Error"
+End Sub
+
+'/**
+' * Parses a single firmware log file and adds entries to the worksheet
+' * Extracts date, time, and message from each line
+' * Filters out entries older than the cutoff date
+' */
+Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Long, cutoffDate As Date, ByRef totalEntries As Long)
+    On Error GoTo ErrorHandler
+    
+    Dim fileNum As Integer
+    Dim lineText As String
+    Dim logDate As Date
+    Dim logTime As String
+    Dim message As String
+    Dim fileName As String
+    
+    ' Extract filename for source column
+    fileName = Dir(filePath)
+    
+    ' Open the file for reading
+    fileNum = FreeFile
+    Open filePath For Input As fileNum
+    
+    ' Read each line
+    Do While Not EOF(fileNum)
+        Line Input #fileNum, lineText
+        
+        ' Skip empty lines
+        If Trim(lineText) <> "" Then
+            ' Try to parse the log entry
+            If ParseLogEntry(lineText, logDate, logTime, message) Then
+                ' Check if entry is from current date
+                If logDate >= cutoffDate Then
+                    ' Add to worksheet
+                    ws.Cells(row, 1).Value = logDate
+                    ws.Cells(row, 2).Value = logTime
+                    ws.Cells(row, 3).Value = message
+                    ws.Cells(row, 4).Value = fileName
+                    
+                    ' Format date column
+                    ws.Cells(row, 1).NumberFormat = "mm/dd/yyyy"
+                    
+                    row = row + 1
+                    totalEntries = totalEntries + 1
+                End If
+            End If
+        End If
+    Loop
+    
+    ' Close the file
+    Close fileNum
+    
+    Exit Sub
+    
+ErrorHandler:
+    ' Close file if it's open
+    If fileNum > 0 Then
+        Close fileNum
+    End If
+    ' Continue processing other files
+End Sub
+
+'/**
+' * Parses a single log entry line to extract date, time, and message
+' * Returns True if parsing was successful
+' */
+Function ParseLogEntry(lineText As String, ByRef logDate As Date, ByRef logTime As String, ByRef message As String) As Boolean
+    On Error GoTo ErrorHandler
+    
+    Dim underscorePos As Integer
+    Dim spacePos As Integer
+    Dim dateTimeStr As String
+    Dim timeStr As String
+    
+    ' Look for the actual log format: YYYY/MM/DD_HH:MM:SS message
+    ' Find underscore (separates date from time)
+    underscorePos = InStr(lineText, "_")
+    If underscorePos = 0 Then
+        ParseLogEntry = False
+        Exit Function
+    End If
+    
+    ' Extract date part (before underscore)
+    dateTimeStr = Left(lineText, underscorePos - 1)
+    
+    ' Find space (separates time from message)
+    spacePos = InStr(underscorePos + 1, lineText, " ")
+    If spacePos = 0 Then
+        ParseLogEntry = False
+        Exit Function
+    End If
+    
+    ' Extract time part (between underscore and space)
+    timeStr = Mid(lineText, underscorePos + 1, spacePos - underscorePos - 1)
+    
+    ' Extract message (everything after the space)
+    message = Mid(lineText, spacePos + 1)
+    
+    ' Try to parse the date and time
+    If IsDate(dateTimeStr) And IsDate("1/1/1900 " & timeStr) Then
+        logDate = CDate(dateTimeStr)
+        logTime = timeStr
+        ParseLogEntry = True
+        Exit Function
+    End If
+    
+    ' If that didn't work, try parsing the full datetime string
+    If IsDate(dateTimeStr & " " & timeStr) Then
+        Dim fullDateTime As Date
+        fullDateTime = CDate(dateTimeStr & " " & timeStr)
+        logDate = DateValue(fullDateTime)
+        logTime = TimeValue(fullDateTime)
+        ParseLogEntry = True
+        Exit Function
+    End If
+    
+    ParseLogEntry = False
+    Exit Function
+    
+ErrorHandler:
+    ParseLogEntry = False
+End Function
