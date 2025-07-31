@@ -118,6 +118,76 @@ The `Sub ReadingsLogfile().vb` script contains the following main functions:
 
 **Note**: The script has been cleaned up to remove unused functions and variables, improving maintainability and reducing code complexity.
 
+### Detailed Function Descriptions
+
+#### `ReadingsLogfile()` - Main Processing Function
+This is the primary entry point that orchestrates the entire data processing workflow:
+- Creates a backup of original data in a "RAW" sheet
+- Sets up worksheet layout with frozen header row
+- Clears existing formatting
+- Calls all processing functions in sequence
+- Saves the processed file as an Excel workbook
+
+#### `IdentifyFlameouts()` - Flameout Detection
+Detects and visually highlights flameout events in the sensor data:
+- **Detection Method**: Monitors transitions from "ignited" to "not ignited" status
+- **Temperature Analysis**: Looks back through data to find where temperature first started dropping
+- **Visual Highlighting**: Applies color-coded gradient (light red to dark red) based on temperature drop intensity
+- **Intensity Calculation**: `(peak_temp - current_temp) / (peak_temp - 40)`
+- **Conditions**: Only processes data when solenoid is active (solenoid = 1)
+- **Duration**: Continues highlighting until system returns to ignited status
+
+#### `ProcessIgnitionStates()` - Ignition State Processing
+Processes ignition state changes and updates column B with appropriate text and colors:
+- **"Attempt"**: Yellow highlighting for "Attempting to ignite" messages
+- **"Ignited"**: Green highlighting when ignition transitions from false to true
+- **"Flameout"**: Red highlighting when ignition transitions from true to false
+- **Serial Number**: Default text showing device serial number (e.g., "phx42-1974")
+
+#### `ColorRowsVacuum()` - Vacuum Data Formatting
+Applies conditional formatting to vacuum column (Column L):
+- **Green**: Values above -0.6 (good vacuum)
+- **Yellow**: Values between -1.0 and -0.6 (warning range)
+- **Red**: Values below -1.0 (poor vacuum)
+
+#### `ColorRowsVoltage()` - Voltage Data Formatting
+Applies conditional formatting to voltage column (Column V):
+- Highlights values above one standard deviation from average
+- Uses bold red text for emphasis
+
+#### `RenameHeaders()` - Header Standardization
+Renames CSV headers to standardized format:
+- "PA Offset" → "Ofs"
+- "Sample Pressure" → "sPress"
+- "Sample PPL" → "sPPL"
+- "Combustion Pressure" → "cPress"
+- "Combustion PPL" → "cPPL"
+- "Internal Temp." → "iTemp"
+- "External Temp." → "eTemp"
+- "Case Temp." → "cTemp"
+- "Needle Valve" → "MOV"
+
+#### `DeleteRowsBasedOnConditions()` - Data Cleaning
+Removes invalid data rows based on specific conditions:
+- Rows with blank/null sample pressure (Column F)
+- Rows containing "N/A" or "NA" values
+- Rows with "sample pressure" text
+- Completely empty rows
+
+#### `FormatDecimalPlaces()` - Number Formatting
+Applies appropriate decimal formatting based on actual data:
+- Analyzes each column to determine maximum decimal places
+- Applies 1-3 decimal place formatting as needed
+- Preserves time formatting in Column A
+- Uses general number format for columns without decimals
+
+#### `SaveAsExcelFile()` - File Output
+Saves the processed workbook with intelligent naming:
+- Removes .csv extension and adds "_processed.xlsx"
+- Creates unique filenames if duplicates exist
+- Attempts multiple save locations (original directory, desktop, downloads)
+- Falls back to saving current workbook if all else fails
+
 ### Required Data Format
 The script expects CSV files with the following columns:
 - **Column A**: Timestamp
@@ -129,6 +199,31 @@ The script expects CSV files with the following columns:
 - **Column V (22)**: Voltage
 - **Column X (24)**: Is Ignited
 - **Column AC (29)**: Reporting Status
+
+### Data Processing Workflow
+
+The script follows a specific sequence of operations to process sensor data:
+
+1. **Backup Creation**: Creates a "RAW" sheet with original data
+2. **Data Cleaning**: Removes invalid rows (N/A, blank pressure, etc.)
+3. **Header Standardization**: Renames headers to abbreviated format
+4. **Formatting**: Applies decimal places and time formatting
+5. **Analysis**: 
+   - Identifies flameout events with color coding
+   - Processes ignition state changes
+   - Applies conditional formatting to voltage and vacuum
+6. **Serial Number**: Adds device serial number to Column B
+7. **File Output**: Saves as processed Excel file
+
+### Expected Output
+
+After processing, the Excel file will contain:
+- **Color-coded temperature data**: Red gradient highlighting for flameout events
+- **Conditional formatting**: Green/yellow/red for vacuum levels, red for voltage spikes
+- **State indicators**: "Attempt", "Ignited", "Flameout" in Column B
+- **Standardized headers**: Abbreviated column names
+- **Proper formatting**: Appropriate decimal places and time format
+- **Backup sheet**: Original data preserved in "RAW" sheet
 
 ## Troubleshooting Guide
 
@@ -193,15 +288,43 @@ sudo purge
 The script uses several constants that can be modified:
 
 ```vb
+' Column positions
+Private Const LPH2_COLUMN As Integer = 10          ' Column J (lph2)
+Private Const SOLENOID_COLUMN As Integer = 19      ' Column S (solenoid)
+Private Const FLAMEOUT_COLUMN As Integer = 13      ' Column M (iTemp - internal temp)
+Private Const IS_IGNITED_COLUMN As Integer = 24    ' Column X (is ignited)
+
 ' Temperature thresholds
-Private Const FLAMEOUT_THRESHOLD As Double = 100
-Private Const MIN_OPERATING_TEMP As Double = 100
-Private Const TEMP_DROP_THRESHOLD As Double = 20
+Private Const MIN_OPERATING_TEMP As Double = 100     ' Minimum temperature to consider as operating
+Private Const STEADY_STATE_SAMPLES As Integer = 5    ' Minimum samples to establish normal operating range
+Private Const STEADY_STATE_THRESHOLD As Double = 0.005
+Private Const BLIP_THRESHOLD As Double = 0.05
+Private Const STEADY_STATE_MAX As Double = 1.3
 
 ' Vacuum thresholds
 Private Const VACUUM_GREEN_THRESHOLD As Double = -0.6
 Private Const VACUUM_RED_THRESHOLD As Double = -1.0
 ```
+
+### Key Constants Explained
+
+#### Column Positions
+- **`LPH2_COLUMN = 10`**: Column J containing LPH2 data
+- **`SOLENOID_COLUMN = 19`**: Column S containing solenoid status (0=off, 1=on)
+- **`FLAMEOUT_COLUMN = 13`**: Column M containing internal temperature data
+- **`IS_IGNITED_COLUMN = 24`**: Column X containing ignition status (TRUE/FALSE)
+
+#### Temperature Thresholds
+- **`MIN_OPERATING_TEMP = 100`**: Minimum temperature (°C) to consider system as operating
+- **`STEADY_STATE_SAMPLES = 5`**: Number of samples used to calculate steady-state temperature
+- **`STEADY_STATE_THRESHOLD = 0.005`**: Threshold for determining steady-state conditions
+- **`BLIP_THRESHOLD = 0.05`**: Threshold for detecting temperature blips
+- **`STEADY_STATE_MAX = 1.3`**: Maximum value for steady-state calculations
+
+#### Vacuum Thresholds
+- **`VACUUM_GREEN_THRESHOLD = -0.6`**: Values above this are considered good (green)
+- **`VACUUM_RED_THRESHOLD = -1.0`**: Values below this are considered poor (red)
+- Values between these thresholds are shown in yellow (warning)
 
 ### Adding Custom Formatting
 To add custom conditional formatting:
