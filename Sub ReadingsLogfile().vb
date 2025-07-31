@@ -408,6 +408,11 @@ Sub ReadingsLogfile()
     DoEvents
     Call AddSerialNumberToColumnB
     
+    ' Process ignition states
+    Application.StatusBar = "Processing ignition states..."
+    DoEvents
+    Call ProcessIgnitionStates
+    
     ' Auto-size all columns
     Application.StatusBar = "Auto-sizing columns..."
     DoEvents
@@ -1043,12 +1048,10 @@ Sub ColorRowsVacuum()
     ' Define the format applied for each conditional format
     With cond1
         .Interior.Color = vbGreen
-        .Font.Color = vbWhite
     End With
     
     With cond2
         .Interior.Color = vbRed
-        .Font.Color = vbWhite
     End With
     
     With cond3
@@ -1393,4 +1396,112 @@ Sub FormatDateTimeColumn()
     
 ErrorHandler:
     MsgBox "Error in FormatDateTimeColumn: " & Err.Description, vbExclamation
+End Sub
+
+'/**
+' * Processes ignition state changes and "Attempting to ignite" messages
+' * Updates column B with appropriate text and color based on ignition state transitions
+' */
+Sub ProcessIgnitionStates()
+    On Error GoTo ErrorHandler
+    
+    Application.ScreenUpdating = False
+    
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' Constants for column positions
+    Const IS_IGNITED_COLUMN As Integer = 24    ' Column X (is ignited)
+    Const MESSAGE_COLUMN As Integer = 30       ' Column AD (message)
+    Const COLUMN_B As Integer = 2              ' Column B
+    
+    ' Color variables
+    Dim COLOR_LIGHT_YELLOW As Long
+    Dim COLOR_GREEN As Long
+    Dim COLOR_RED As Long
+    
+    ' Initialize colors
+    COLOR_LIGHT_YELLOW = RGB(255, 255, 224)  ' Light yellow for Attempt
+    COLOR_GREEN = RGB(0, 255, 0)             ' Green for Ignited
+    COLOR_RED = RGB(255, 0, 0)               ' Red for Flameout
+    
+    Dim i As Long
+    Dim isIgnited As Variant
+    Dim previousIgnited As Variant
+    Dim messageText As String
+    Dim serialNumber As String
+    Dim lastCol As Long
+    
+    ' Get the serial number that was already added to column B
+    serialNumber = ws.Cells(2, COLUMN_B).Value
+    
+    ' Get the last column with data (calculate once before loop)
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    
+    ' Initialize previous ignition state
+    previousIgnited = False
+    
+    For i = 2 To lastRow
+        ' Show progress every 100 rows
+        If i Mod 100 = 0 Then
+            Application.StatusBar = "Processing ignition states: Processing row " & i & " of " & lastRow & "..."
+            DoEvents
+        End If
+        
+        ' Check if we have valid data in the required columns
+        If IS_IGNITED_COLUMN <= lastCol And _
+           MESSAGE_COLUMN <= lastCol And _
+           Not IsEmpty(ws.Cells(i, IS_IGNITED_COLUMN).Value) And _
+           Not IsEmpty(ws.Cells(i, MESSAGE_COLUMN).Value) Then
+            
+            isIgnited = ws.Cells(i, IS_IGNITED_COLUMN).Value
+            messageText = Trim(CStr(ws.Cells(i, MESSAGE_COLUMN).Value))
+            
+            ' Check for "Attempting to ignite" message first (highest priority)
+            If UCase(messageText) = "ATTEMPTING TO IGNITE" Then
+                ws.Cells(i, COLUMN_B).Value = "Attempt"
+                ws.Cells(i, COLUMN_B).Interior.Color = COLOR_LIGHT_YELLOW
+            Else
+                ' Check for ignition state changes
+                If i > 2 Then  ' Need at least 2 rows to compare
+                    ' Check if ignition went from true to false (flameout)
+                    If (previousIgnited = True Or previousIgnited = "TRUE") And _
+                       (isIgnited = False Or isIgnited = "FALSE") Then
+                        ws.Cells(i, COLUMN_B).Value = "Flameout"
+                        ws.Cells(i, COLUMN_B).Interior.Color = COLOR_RED
+                    ' Check if ignition went from false to true (ignited)
+                    ElseIf (previousIgnited = False Or previousIgnited = "FALSE") And _
+                           (isIgnited = True Or isIgnited = "TRUE") Then
+                        ws.Cells(i, COLUMN_B).Value = "Ignited"
+                        ws.Cells(i, COLUMN_B).Interior.Color = COLOR_GREEN
+                    Else
+                        ' Keep the serial number if no state change
+                        ws.Cells(i, COLUMN_B).Value = serialNumber
+                        ws.Cells(i, COLUMN_B).Interior.ColorIndex = xlNone
+                    End If
+                Else
+                    ' First row - keep serial number
+                    ws.Cells(i, COLUMN_B).Value = serialNumber
+                    ws.Cells(i, COLUMN_B).Interior.ColorIndex = xlNone
+                End If
+            End If
+            
+            ' Update previous ignition state for next iteration
+            previousIgnited = isIgnited
+        Else
+            ' If missing data, keep the serial number
+            ws.Cells(i, COLUMN_B).Value = serialNumber
+            ws.Cells(i, COLUMN_B).Interior.ColorIndex = xlNone
+        End If
+    Next i
+    
+    Application.ScreenUpdating = True
+    Exit Sub
+    
+ErrorHandler:
+    Application.ScreenUpdating = True
+    MsgBox "Error in ProcessIgnitionStates: " & Err.Description, vbExclamation
 End Sub
