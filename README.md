@@ -50,8 +50,8 @@ brew install git
 # Navigate to your desired directory
 cd ~/Documents
 
-# Clone the repository (replace with actual GitHub URL)
-git clone https://github.com/yourusername/vb-scripts.git
+# Clone the repository
+git clone https://github.com/gruMoses/phx42-log-file-scripts.git
 
 # Navigate to the cloned directory
 cd vb-scripts
@@ -263,7 +263,7 @@ cp "~/Documents/Personal Workbook.xlsm" "~/Documents/Personal Workbook_backup_$(
 cd ~/Documents/VB_Scripts_Backup
 
 # Download the latest version from GitHub
-curl -o "Sub ReadingsLogfile().vb" "https://raw.githubusercontent.com/yourusername/vb-scripts/main/Sub%20ReadingsLogfile%28%29.vb"
+curl -o "Sub ReadingsLogfile().vb" "https://raw.githubusercontent.com/gruMoses/phx42-log-file-scripts/main/Sub%20ReadingsLogfile%28%29.vb"
 
 # Verify download
 ls -la "Sub ReadingsLogfile().vb"
@@ -295,7 +295,7 @@ echo "Starting VB Script Update..."
 # Set variables
 SCRIPT_DIR="$HOME/Documents/VB_Scripts_Backup"
 SCRIPT_NAME="Sub ReadingsLogfile().vb"
-GITHUB_URL="https://raw.githubusercontent.com/yourusername/vb-scripts/main/Sub%20ReadingsLogfile%28%29.vb"
+GITHUB_URL="https://raw.githubusercontent.com/gruMoses/phx42-log-file-scripts/main/Sub%20ReadingsLogfile%28%29.vb"
 BACKUP_DIR="$SCRIPT_DIR/backups"
 
 # Create backup directory if it doesn't exist
@@ -350,7 +350,7 @@ chmod +x ~/Documents/update_vb_script.sh
 ```bash
 # Clone the repository (if not already done)
 cd ~/Documents
-git clone https://github.com/yourusername/vb-scripts.git
+git clone https://github.com/gruMoses/phx42-log-file-scripts.git
 
 # Navigate to the repository
 cd vb-scripts
@@ -458,7 +458,7 @@ echo "Script rolled back to backup version."
 #### Version Control Tips
 ```bash
 # Create a version log
-echo "$(date): Updated to version $(curl -s https://raw.githubusercontent.com/yourusername/vb-scripts/main/version.txt)" >> ~/Documents/vb_script_version.log
+echo "$(date): Updated to version $(curl -s https://raw.githubusercontent.com/gruMoses/phx42-log-file-scripts/main/version.txt)" >> ~/Documents/vb_script_version.log
 
 # Check update history
 cat ~/Documents/vb_script_version.log
