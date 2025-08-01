@@ -1,9 +1,9 @@
 '/**
 ' * Sensor Readings Logfile Processing Module
-' * 
+' *
 ' * This module processes sensor data from CSV files, applies formatting,
 ' * identifies anomalies, and performs data analysis.
-' * 
+' *
 ' * @author Kevin Moses
 ' * @version 2.0
 ' */
@@ -13,6 +13,7 @@ Private Const LPH2_COLUMN As Integer = 10          ' Column J (lph2)
 Private Const SOLENOID_COLUMN As Integer = 19      ' Column S (solenoid)
 Private Const FLAMEOUT_COLUMN As Integer = 13      ' Column M (iTemp - internal temp)
 Private Const IS_IGNITED_COLUMN As Integer = 24    ' Column X (is ignited)
+Private Const COMPARISON_COLUMN As Integer = 27     ' Column AA (comparison column)
 
 ' Constants for thresholds
 Private Const MIN_OPERATING_TEMP As Double = 100     ' Minimum temperature to consider as operating
@@ -21,7 +22,8 @@ Private Const STEADY_STATE_THRESHOLD As Double = 0.005
 Private Const BLIP_THRESHOLD As Double = 0.05
 Private Const STEADY_STATE_MAX As Double = 1.3
 Private Const VACUUM_GREEN_THRESHOLD As Double = -0.6
-Private Const VACUUM_RED_THRESHOLD As Double = -1.0
+Private Const VACUUM_RED_THRESHOLD As Double = -1#
+Private Const LPH2_COMPARISON_THRESHOLD As Double = 0.01  ' Threshold for LPH2 comparison (10% difference)
 
 ' Color variables (initialized at runtime)
 Private COLOR_LIGHT_GREEN As Long
@@ -80,29 +82,29 @@ Sub RenameHeaders()
     
     ' Loop through each column in the header row
     For col = 1 To lastCol
-        headerText = Trim(CStr(headerRow.Cells(1, col).Value))
+        headerText = Trim(CStr(headerRow.Cells(1, col).value))
         lowerHeader = LCase(headerText)
         
         ' Check and rename headers using direct string comparisons
         Select Case lowerHeader
             Case "pa offset"
-                headerRow.Cells(1, col).Value = "Ofs"
+                headerRow.Cells(1, col).value = "Ofs"
             Case "sample pressure"
-                headerRow.Cells(1, col).Value = "sPress"
+                headerRow.Cells(1, col).value = "sPress"
             Case "sample ppl"
-                headerRow.Cells(1, col).Value = "sPPL"
+                headerRow.Cells(1, col).value = "sPPL"
             Case "combustion pressure"
-                headerRow.Cells(1, col).Value = "cPress"
+                headerRow.Cells(1, col).value = "cPress"
             Case "combustion ppl"
-                headerRow.Cells(1, col).Value = "cPPL"
+                headerRow.Cells(1, col).value = "cPPL"
             Case "internal temp."
-                headerRow.Cells(1, col).Value = "iTemp"
+                headerRow.Cells(1, col).value = "iTemp"
             Case "external temp."
-                headerRow.Cells(1, col).Value = "eTemp"
+                headerRow.Cells(1, col).value = "eTemp"
             Case "case temp."
-                headerRow.Cells(1, col).Value = "cTemp"
+                headerRow.Cells(1, col).value = "cTemp"
             Case "needle valve"
-                headerRow.Cells(1, col).Value = "MOV"
+                headerRow.Cells(1, col).value = "MOV"
         End Select
     Next col
     
@@ -124,7 +126,7 @@ Sub FormatDecimalPlaces()
     ' Find the last row and column with data
     Dim lastRow As Long
     Dim lastCol As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
     lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
     
     Dim col As Long
@@ -149,7 +151,7 @@ Sub FormatDecimalPlaces()
         ' Analyze each cell in the column to find maximum decimal places
         For row = 2 To lastRow
             If Not IsEmpty(ws.Cells(row, col)) And IsNumeric(ws.Cells(row, col)) Then
-                cellValue = ws.Cells(row, col).Value
+                cellValue = ws.Cells(row, col).value
                 cellText = CStr(cellValue)
                 
                 ' Check if the value has decimal places
@@ -211,7 +213,7 @@ Sub DeleteRowsBasedOnConditions()
     Set ws = ActiveSheet
     
     Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
     
     Dim i As Long
     Dim j As Integer
@@ -231,8 +233,8 @@ Sub DeleteRowsBasedOnConditions()
         
         ' Check column F (6th column) for blank/null sample pressure
         If IsEmpty(ws.Cells(i, 6)) Or IsNull(ws.Cells(i, 6)) Or _
-           Trim(CStr(ws.Cells(i, 6).Value)) = "" Or _
-           ws.Cells(i, 6).Value = "" Then
+           Trim(CStr(ws.Cells(i, 6).value)) = "" Or _
+           ws.Cells(i, 6).value = "" Then
             deleteRow = True
         End If
         
@@ -246,7 +248,7 @@ Sub DeleteRowsBasedOnConditions()
             lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
             
             For j = 1 To lastCol
-                cellValue = ws.Cells(i, j).Value
+                cellValue = ws.Cells(i, j).value
                 
                 ' Check if cell has data
                 If Not IsEmpty(cellValue) Then
@@ -319,6 +321,10 @@ End Sub
 Sub ReadingsLogfile()
     On Error GoTo ErrorHandler
     
+    ' Store reference to the data workbook (not Personal workbook)
+    Dim dataWorkbook As Workbook
+    Set dataWorkbook = ActiveWorkbook
+    
     ' Initialize color variables
     Call InitializeColors
     
@@ -332,7 +338,7 @@ Sub ReadingsLogfile()
     ' Create backup of original data
     Application.StatusBar = "Creating backup of original data..."
     DoEvents
-    Call CreateBackupSheet
+    Call CreateBackupSheet(dataWorkbook)
     
     ' Set up window layout
     Application.StatusBar = "Setting up worksheet layout..."
@@ -398,20 +404,26 @@ Sub ReadingsLogfile()
     DoEvents
     Call ProcessIgnitionStates
     
+    ' Flag LPH2 changes
+    Application.StatusBar = "Flagging LPH2 changes..."
+    DoEvents
+    Call FlagLPH2Changes
+    
     ' Auto-size all columns
     Application.StatusBar = "Auto-sizing columns..."
     DoEvents
     Call AutoSizeAllColumns
     
-    ' Find and process firmware logs
+    ' Find firmware logs
     Application.StatusBar = "Finding firmware logs..."
     DoEvents
-    Call FindFirmwareLogs
+    Call FindFirmwareLogs(dataWorkbook)
     
     ' Parse firmware log contents
     Application.StatusBar = "Parsing firmware log contents..."
     DoEvents
-    Call ParseFirmwareLogContents
+    
+    Call ParseFirmwareLogContents(dataWorkbook)
     
     ' Save as Excel file
     Application.StatusBar = "Saving processed file..."
@@ -420,7 +432,7 @@ Sub ReadingsLogfile()
     
     ' Show completion message
     Application.StatusBar = "Processing complete!"
-    Application.Wait Now + TimeValue("00:00:02")  ' Show completion for 2 seconds
+    Application.Wait Now + timeValue("00:00:02")  ' Show completion for 2 seconds
     Application.StatusBar = False  ' Clear status bar
     
     Application.ScreenUpdating = True
@@ -436,7 +448,7 @@ End Sub
 '/**
 ' * Creates a backup of the original data in a new sheet named "RAW"
 ' */
-Sub CreateBackupSheet()
+Sub CreateBackupSheet(targetWorkbook As Workbook)
     On Error GoTo ErrorHandler
     
     Dim ws As Worksheet
@@ -445,7 +457,7 @@ Sub CreateBackupSheet()
     ' Check if RAW sheet already exists and delete it
     Dim rawSheet As Worksheet
     On Error Resume Next
-    Set rawSheet = ThisWorkbook.Worksheets("RAW")
+    Set rawSheet = targetWorkbook.Worksheets("RAW")
     On Error GoTo ErrorHandler
     
     If Not rawSheet Is Nothing Then
@@ -454,16 +466,16 @@ Sub CreateBackupSheet()
         Application.DisplayAlerts = True
     End If
     
-    ' Create new RAW sheet
+    ' Create new RAW sheet in the data workbook (not Personal workbook)
     Dim newSheet As Worksheet
-    Set newSheet = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+    Set newSheet = targetWorkbook.Worksheets.Add(After:=targetWorkbook.Sheets(targetWorkbook.Sheets.Count))
     newSheet.Name = "RAW"
     
     ' Copy all data from active sheet to RAW sheet
     Dim lastRow As Long
     Dim lastCol As Long
     
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
     lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
     
     If lastRow > 0 And lastCol > 0 Then
@@ -514,7 +526,7 @@ Sub IdentifyFlameouts()
     Set ws = ActiveSheet
     
     Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
     
     Dim i As Long, k As Long
     Dim value As Double
@@ -549,17 +561,17 @@ Sub IdentifyFlameouts()
            FLAMEOUT_COLUMN <= ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column And _
            SOLENOID_COLUMN <= ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column And _
            IS_IGNITED_COLUMN <= ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column And _
-           IsNumeric(ws.Cells(i, FLAMEOUT_COLUMN).Value) And _
-           Not IsEmpty(ws.Cells(i, SOLENOID_COLUMN).Value) And _
-           Not IsEmpty(ws.Cells(i, IS_IGNITED_COLUMN).Value) And _
-           ws.Cells(i, FLAMEOUT_COLUMN).Value <> "" And _
-           ws.Cells(i, SOLENOID_COLUMN).Value <> "" And _
-           ws.Cells(i, IS_IGNITED_COLUMN).Value <> "" Then
+           IsNumeric(ws.Cells(i, FLAMEOUT_COLUMN).value) And _
+           Not IsEmpty(ws.Cells(i, SOLENOID_COLUMN).value) And _
+           Not IsEmpty(ws.Cells(i, IS_IGNITED_COLUMN).value) And _
+           ws.Cells(i, FLAMEOUT_COLUMN).value <> "" And _
+           ws.Cells(i, SOLENOID_COLUMN).value <> "" And _
+           ws.Cells(i, IS_IGNITED_COLUMN).value <> "" Then
             
-            value = ws.Cells(i, FLAMEOUT_COLUMN).Value
+            value = ws.Cells(i, FLAMEOUT_COLUMN).value
             Dim solenoid As Variant
-            solenoid = ws.Cells(i, SOLENOID_COLUMN).Value
-            isIgnited = ws.Cells(i, IS_IGNITED_COLUMN).Value
+            solenoid = ws.Cells(i, SOLENOID_COLUMN).value
+            isIgnited = ws.Cells(i, IS_IGNITED_COLUMN).value
             
             If solenoid = 0 Then
                 ' Reset and clear highlight if solenoid is off
@@ -587,8 +599,8 @@ Sub IdentifyFlameouts()
                     
                     For lookBack = 1 To 5
                         If startRow - lookBack >= 2 And _
-                           IsNumeric(ws.Cells(startRow - lookBack, FLAMEOUT_COLUMN).Value) Then
-                            steadyStateTemp = steadyStateTemp + ws.Cells(startRow - lookBack, FLAMEOUT_COLUMN).Value
+                           IsNumeric(ws.Cells(startRow - lookBack, FLAMEOUT_COLUMN).value) Then
+                            steadyStateTemp = steadyStateTemp + ws.Cells(startRow - lookBack, FLAMEOUT_COLUMN).value
                             steadyStateCount = steadyStateCount + 1
                         End If
                     Next lookBack
@@ -600,13 +612,13 @@ Sub IdentifyFlameouts()
                     ' Look back to find where temperature first started dropping
                     Do While startRow > 2 And lookBack < 50  ' Look back up to 50 rows
                         If startRow <= lastRow And startRow > 1 And _
-                           IsNumeric(ws.Cells(startRow, FLAMEOUT_COLUMN).Value) And _
-                           IsNumeric(ws.Cells(startRow - 1, FLAMEOUT_COLUMN).Value) Then
+                           IsNumeric(ws.Cells(startRow, FLAMEOUT_COLUMN).value) And _
+                           IsNumeric(ws.Cells(startRow - 1, FLAMEOUT_COLUMN).value) Then
                             
                             Dim currentTemp As Double
                             Dim previousTemp As Double
-                            currentTemp = ws.Cells(startRow, FLAMEOUT_COLUMN).Value
-                            previousTemp = ws.Cells(startRow - 1, FLAMEOUT_COLUMN).Value
+                            currentTemp = ws.Cells(startRow, FLAMEOUT_COLUMN).value
+                            previousTemp = ws.Cells(startRow - 1, FLAMEOUT_COLUMN).value
                             
                             ' Check if this is where temperature started dropping
                             If currentTemp < previousTemp Then  ' Any temperature drop, no matter how small
@@ -621,14 +633,14 @@ Sub IdentifyFlameouts()
                     Loop
                     
                     ' Peak temperature is at startRow
-                    peak = ws.Cells(startRow, FLAMEOUT_COLUMN).Value
+                    peak = ws.Cells(startRow, FLAMEOUT_COLUMN).value
                     flameoutStartRow = startRow + 1
                     
                     ' Highlight from where temperature first started dropping to current row
                     For k = flameoutStartRow To i
-                        If IsNumeric(ws.Cells(k, FLAMEOUT_COLUMN).Value) Then
+                        If IsNumeric(ws.Cells(k, FLAMEOUT_COLUMN).value) Then
                             Dim valueK As Double
-                            valueK = ws.Cells(k, FLAMEOUT_COLUMN).Value
+                            valueK = ws.Cells(k, FLAMEOUT_COLUMN).value
                             intensity = (peak - valueK) / (peak - 40)  ' Assume minimum temp of 40°C
                             If intensity > 1 Then intensity = 1
                             If intensity < 0 Then intensity = 0
@@ -750,7 +762,19 @@ Sub SaveAsExcelFile()
     
     ' Get the original file name and path
     originalName = ActiveWorkbook.Name
-    filePath = ActiveWorkbook.Path & "\"
+    ' Save to current folder instead of workbook path
+    filePath = CurDir()
+    
+    ' Check if we're in the Excel sandbox (macOS issue)
+    If InStr(filePath, "Library/Containers/com.microsoft.Excel") > 0 Then
+        ' Use the original workbook path instead
+        filePath = ActiveWorkbook.Path
+    End If
+    
+    ' Ensure proper path separator for macOS
+    If Right(filePath, 1) <> "/" And Right(filePath, 1) <> "\" Then
+        filePath = filePath & "/"
+    End If
     
     ' Create new name by removing .csv extension if present and adding .xlsx
     If LCase(Right(originalName, 4)) = ".csv" Then
@@ -780,46 +804,34 @@ Sub SaveAsExcelFile()
         End If
     Loop
     
-    ' Try to save the workbook
-    Application.DisplayAlerts = False
+    ' Prompt user for permission to save file
+    Dim userResponse As VbMsgBoxResult
+    userResponse = MsgBox("Do you want to save the processed file to:" & vbNewLine & _
+                         fullPath & vbNewLine & vbNewLine & _
+                         "Click 'Yes' to save or 'No' to cancel.", _
+                         vbYesNo + vbQuestion, "Save Processed File")
     
-    ' First try to save as new file
-    On Error Resume Next
-    ActiveWorkbook.SaveAs fullPath, xlOpenXMLWorkbook
-    If Err.Number = 0 Then
+    If userResponse = vbYes Then
+        ' Try to save the workbook to current folder only
+        Application.DisplayAlerts = False
+        
+        On Error Resume Next
+        ActiveWorkbook.SaveAs fullPath, xlOpenXMLWorkbook
+        If Err.Number = 0 Then
+            Application.DisplayAlerts = True
+            MsgBox "File saved successfully to:" & vbNewLine & fullPath, vbInformation, "Save Complete"
+            Exit Sub
+        End If
+        On Error GoTo ErrorHandler
+        
+        ' If saving fails, show error message
         Application.DisplayAlerts = True
-        Exit Sub
+        MsgBox "Could not save file to current folder: " & fullPath & vbNewLine & _
+               "Error: " & Err.Description, vbExclamation
+    Else
+        ' User cancelled the save operation
+        MsgBox "File save operation cancelled by user.", vbInformation, "Save Cancelled"
     End If
-    On Error GoTo ErrorHandler
-    
-    ' If that fails, try saving to desktop
-    Dim desktopPath As String
-    desktopPath = Environ("USERPROFILE") & "\Desktop\" & newName
-    
-    On Error Resume Next
-    ActiveWorkbook.SaveAs desktopPath, xlOpenXMLWorkbook
-    If Err.Number = 0 Then
-        Application.DisplayAlerts = True
-        Exit Sub
-    End If
-    On Error GoTo ErrorHandler
-    
-    ' If that also fails, try saving to Downloads folder
-    Dim downloadsPath As String
-    downloadsPath = Environ("USERPROFILE") & "\Downloads\" & newName
-    
-    On Error Resume Next
-    ActiveWorkbook.SaveAs downloadsPath, xlOpenXMLWorkbook
-    If Err.Number = 0 Then
-        Application.DisplayAlerts = True
-        Exit Sub
-    End If
-    On Error GoTo ErrorHandler
-    
-    ' If all else fails, just save the current workbook
-    Application.DisplayAlerts = True
-    MsgBox "Could not save as new file. Saving current workbook instead.", vbExclamation
-    ActiveWorkbook.Save
     
     Exit Sub
     
@@ -842,14 +854,14 @@ Sub AddSerialNumberToColumnB()
     If serialNumber <> "" Then
         ' Get the last row with data
         Dim lastRow As Long
-        lastRow = ActiveSheet.Cells(ActiveSheet.Rows.Count, 1).End(xlUp).Row
+        lastRow = ActiveSheet.Cells(ActiveSheet.Rows.Count, 1).End(xlUp).row
         
         ' Fill column B with serial number for all rows
         Dim serialText As String
         serialText = "phx42-" & serialNumber
         
         ' Apply to all rows from 1 to lastRow
-        ActiveSheet.Range("B1:B" & lastRow).Value = serialText
+        ActiveSheet.Range("B1:B" & lastRow).value = serialText
         
         ' No popup message - silent operation
     Else
@@ -922,7 +934,7 @@ Sub FormatDateTimeColumn()
     Set ws = ActiveSheet
     
     Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
     
     Dim i As Long
     Dim cellValue As Variant
@@ -935,7 +947,7 @@ Sub FormatDateTimeColumn()
     ' Process each row from 2 to lastRow (skip header)
     For i = 2 To lastRow
         If Not IsEmpty(ws.Cells(i, 1)) Then
-            cellValue = ws.Cells(i, 1).Value
+            cellValue = ws.Cells(i, 1).value
             
             ' Check if it's already a decimal number (Excel time format)
             If IsNumeric(cellValue) Then
@@ -966,7 +978,7 @@ Sub FormatDateTimeColumn()
                 ' Convert to proper time value
                 If IsDate("1/1/1900 " & timeOnly) Then
                     timeValue = CDate("1/1/1900 " & timeOnly)
-                    ws.Cells(i, 1).Value = timeValue
+                    ws.Cells(i, 1).value = timeValue
                     ws.Cells(i, 1).NumberFormat = "hh:mm:ss"
                 End If
             Else
@@ -992,7 +1004,7 @@ Sub FormatDateTimeColumn()
                         ' Convert to proper time value and apply formatting
                         If IsDate("1/1/1900 " & timeOnly) Then
                             timeValue = CDate("1/1/1900 " & timeOnly)
-                            ws.Cells(i, 1).Value = timeValue
+                            ws.Cells(i, 1).value = timeValue
                             ws.Cells(i, 1).NumberFormat = "hh:mm:ss"
                         End If
                     End If
@@ -1020,7 +1032,7 @@ Sub ProcessIgnitionStates()
     Set ws = ActiveSheet
     
     Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
     
     ' Constants for column positions
     Const MESSAGE_COLUMN As Integer = 30       ' Column AD (message)
@@ -1044,7 +1056,7 @@ Sub ProcessIgnitionStates()
     Dim lastCol As Long
     
     ' Get the serial number that was already added to column B
-    serialNumber = ws.Cells(2, COLUMN_B).Value
+    serialNumber = ws.Cells(2, COLUMN_B).value
     
     ' Get the last column with data (calculate once before loop)
     lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
@@ -1062,15 +1074,15 @@ Sub ProcessIgnitionStates()
         ' Check if we have valid data in the required columns
         If IS_IGNITED_COLUMN <= lastCol And _
            MESSAGE_COLUMN <= lastCol And _
-           Not IsEmpty(ws.Cells(i, IS_IGNITED_COLUMN).Value) And _
-           Not IsEmpty(ws.Cells(i, MESSAGE_COLUMN).Value) Then
+           Not IsEmpty(ws.Cells(i, IS_IGNITED_COLUMN).value) And _
+           Not IsEmpty(ws.Cells(i, MESSAGE_COLUMN).value) Then
             
-            isIgnited = ws.Cells(i, IS_IGNITED_COLUMN).Value
-            messageText = Trim(CStr(ws.Cells(i, MESSAGE_COLUMN).Value))
+            isIgnited = ws.Cells(i, IS_IGNITED_COLUMN).value
+            messageText = Trim(CStr(ws.Cells(i, MESSAGE_COLUMN).value))
             
             ' Check for "Attempting to ignite" message first (highest priority)
             If UCase(messageText) = "ATTEMPTING TO IGNITE" Then
-                ws.Cells(i, COLUMN_B).Value = "Attempt"
+                ws.Cells(i, COLUMN_B).value = "Attempt"
                 ws.Cells(i, COLUMN_B).Interior.Color = COLOR_LIGHT_YELLOW
             Else
                 ' Check for ignition state changes
@@ -1078,21 +1090,21 @@ Sub ProcessIgnitionStates()
                     ' Check if ignition went from true to false (flameout)
                     If (previousIgnited = True Or previousIgnited = "TRUE") And _
                        (isIgnited = False Or isIgnited = "FALSE") Then
-                        ws.Cells(i, COLUMN_B).Value = "Flameout"
+                        ws.Cells(i, COLUMN_B).value = "Flameout"
                         ws.Cells(i, COLUMN_B).Interior.Color = COLOR_RED
                     ' Check if ignition went from false to true (ignited)
                     ElseIf (previousIgnited = False Or previousIgnited = "FALSE") And _
                            (isIgnited = True Or isIgnited = "TRUE") Then
-                        ws.Cells(i, COLUMN_B).Value = "Ignited"
+                        ws.Cells(i, COLUMN_B).value = "Ignited"
                         ws.Cells(i, COLUMN_B).Interior.Color = COLOR_GREEN
                     Else
                         ' Keep the serial number if no state change
-                        ws.Cells(i, COLUMN_B).Value = serialNumber
+                        ws.Cells(i, COLUMN_B).value = serialNumber
                         ws.Cells(i, COLUMN_B).Interior.ColorIndex = xlNone
                     End If
                 Else
                     ' First row - keep serial number
-                    ws.Cells(i, COLUMN_B).Value = serialNumber
+                    ws.Cells(i, COLUMN_B).value = serialNumber
                     ws.Cells(i, COLUMN_B).Interior.ColorIndex = xlNone
                 End If
             End If
@@ -1101,7 +1113,7 @@ Sub ProcessIgnitionStates()
             previousIgnited = isIgnited
         Else
             ' If missing data, keep the serial number
-            ws.Cells(i, COLUMN_B).Value = serialNumber
+            ws.Cells(i, COLUMN_B).value = serialNumber
             ws.Cells(i, COLUMN_B).Interior.ColorIndex = xlNone
         End If
     Next i
@@ -1118,7 +1130,7 @@ End Sub
 ' * Finds firmware logs in the same folder as the current file
 ' * Filters by date from current filename and lists them in a new sheet
 ' */
-Sub FindFirmwareLogs()
+Sub FindFirmwareLogs(targetWorkbook As Workbook)
     On Error GoTo ErrorHandler
     
     Application.ScreenUpdating = False
@@ -1129,8 +1141,20 @@ Sub FindFirmwareLogs()
     Dim targetDate As String
     Dim serialNumber As String
     
+    ' On macOS, use the original workbook path as fallback if CurDir() returns sandbox path
     currentPath = CurDir()
     currentFileName = ActiveWorkbook.Name
+    
+    ' Check if we're in the Excel sandbox (macOS issue)
+    If InStr(currentPath, "Library/Containers/com.microsoft.Excel") > 0 Then
+        ' Use the original workbook path instead
+        currentPath = ActiveWorkbook.Path
+    End If
+    
+    ' Ensure proper path separator for macOS
+    If Right(currentPath, 1) <> "/" And Right(currentPath, 1) <> "\" Then
+        currentPath = currentPath & "/"
+    End If
     
     ' Extract date and serial number from current filename
     targetDate = ExtractDateFromFileName(currentFileName)
@@ -1148,7 +1172,7 @@ Sub FindFirmwareLogs()
     
     ' Check if sheet already exists and delete it
     On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(sheetName)
+    Set ws = targetWorkbook.Worksheets(sheetName)
     On Error GoTo ErrorHandler
     
     If Not ws Is Nothing Then
@@ -1158,16 +1182,16 @@ Sub FindFirmwareLogs()
     End If
     
     ' Create new sheet
-    Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+    Set ws = targetWorkbook.Worksheets.Add(After:=targetWorkbook.Sheets(targetWorkbook.Sheets.Count))
     ws.Name = sheetName
     
     ' Set up headers
-    ws.Cells(1, 1).Value = "Filename"
-    ws.Cells(1, 2).Value = "Date"
-    ws.Cells(1, 3).Value = "Serial Number"
-    ws.Cells(1, 4).Value = "Log Type"
-    ws.Cells(1, 5).Value = "File Size (KB)"
-    ws.Cells(1, 6).Value = "Full Path"
+    ws.Cells(1, 1).value = "Filename"
+    ws.Cells(1, 2).value = "Date"
+    ws.Cells(1, 3).value = "Serial Number"
+    ws.Cells(1, 4).value = "Log Type"
+    ws.Cells(1, 5).value = "File Size (KB)"
+    ws.Cells(1, 6).value = "Full Path"
     
     ' Format headers
     ws.Range("A1:F1").Font.Bold = True
@@ -1203,12 +1227,12 @@ Sub FindFirmwareLogs()
             fileSize = FileLen(filePath)
             
             ' Add to worksheet
-            ws.Cells(row, 1).Value = fileName
-            ws.Cells(row, 2).Value = fileDate
-            ws.Cells(row, 3).Value = fileSN
-            ws.Cells(row, 4).Value = logType
-            ws.Cells(row, 5).Value = Round(fileSize / 1024, 2)  ' Convert to KB
-            ws.Cells(row, 6).Value = filePath
+            ws.Cells(row, 1).value = fileName
+            ws.Cells(row, 2).value = fileDate
+            ws.Cells(row, 3).value = fileSN
+            ws.Cells(row, 4).value = logType
+            ws.Cells(row, 5).value = Round(fileSize / 1024, 2)  ' Convert to KB
+            ws.Cells(row, 6).value = filePath
             
             row = row + 1
             fileCount = fileCount + 1
@@ -1221,30 +1245,21 @@ Sub FindFirmwareLogs()
     ws.Columns("A:F").AutoFit
     
     ' Add summary information
-    ws.Cells(row + 1, 1).Value = "Summary:"
+    ws.Cells(row + 1, 1).value = "Summary:"
     ws.Cells(row + 1, 1).Font.Bold = True
-    ws.Cells(row + 2, 1).Value = "Date Filter:"
-    ws.Cells(row + 2, 2).Value = targetDate
-    ws.Cells(row + 3, 1).Value = "Serial Number:"
-    ws.Cells(row + 3, 2).Value = serialNumber
-    ws.Cells(row + 4, 1).Value = "Files Found:"
-    ws.Cells(row + 4, 2).Value = fileCount
+    ws.Cells(row + 2, 1).value = "Date Filter:"
+    ws.Cells(row + 2, 2).value = targetDate
+    ws.Cells(row + 3, 1).value = "Serial Number:"
+    ws.Cells(row + 3, 2).value = serialNumber
+    ws.Cells(row + 4, 1).value = "Files Found:"
+    ws.Cells(row + 4, 2).value = fileCount
     
     ' Activate the new sheet
     ws.Activate
     
     Application.ScreenUpdating = True
     
-    ' Always show a message about the search results
-    If fileCount > 0 Then
-        MsgBox "Found " & fileCount & " firmware log files for date " & targetDate & "." & vbNewLine & _
-               "Results listed in sheet: " & sheetName & vbNewLine & _
-               "Searched in: " & currentPath, vbInformation
-    Else
-        MsgBox "No firmware log files found for date " & targetDate & "." & vbNewLine & _
-               "Searched in: " & currentPath & vbNewLine & _
-               "Sheet '" & sheetName & "' created with empty results.", vbInformation
-    End If
+
     
     Exit Sub
     
@@ -1257,9 +1272,9 @@ End Sub
 '/**
 ' * Parses the contents of firmware log files and creates a new sheet with the data
 ' * Extracts date, time, and message from each log entry
-' * Filters out entries older than the date from current filename
+' * Filters out entries older than 7 days
 ' */
-Sub ParseFirmwareLogContents()
+Sub ParseFirmwareLogContents(targetWorkbook As Workbook)
     On Error GoTo ErrorHandler
     
     Application.ScreenUpdating = False
@@ -1272,6 +1287,17 @@ Sub ParseFirmwareLogContents()
     
     currentPath = CurDir()
     currentFileName = ActiveWorkbook.Name
+    
+    ' Check if we're in the Excel sandbox (macOS issue)
+    If InStr(currentPath, "Library/Containers/com.microsoft.Excel") > 0 Then
+        ' Use the original workbook path instead
+        currentPath = ActiveWorkbook.Path
+    End If
+    
+    ' Ensure proper path separator for macOS
+    If Right(currentPath, 1) <> "/" And Right(currentPath, 1) <> "\" Then
+        currentPath = currentPath & "/"
+    End If
     
     ' Extract date and serial number from current filename
     targetDate = ExtractDateFromFileName(currentFileName)
@@ -1289,7 +1315,7 @@ Sub ParseFirmwareLogContents()
     
     ' Check if sheet already exists and delete it
     On Error Resume Next
-    Set ws = ThisWorkbook.Worksheets(sheetName)
+    Set ws = targetWorkbook.Worksheets(sheetName)
     On Error GoTo ErrorHandler
     
     If Not ws Is Nothing Then
@@ -1299,14 +1325,14 @@ Sub ParseFirmwareLogContents()
     End If
     
     ' Create new sheet
-    Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+    Set ws = targetWorkbook.Worksheets.Add(After:=targetWorkbook.Sheets(targetWorkbook.Sheets.Count))
     ws.Name = sheetName
     
     ' Set up headers
-    ws.Cells(1, 1).Value = "Date"
-    ws.Cells(1, 2).Value = "Time"
-    ws.Cells(1, 3).Value = "Message"
-    ws.Cells(1, 4).Value = "Source File"
+    ws.Cells(1, 1).value = "Date"
+    ws.Cells(1, 2).value = "Time"
+    ws.Cells(1, 3).value = "Message"
+    ws.Cells(1, 4).value = "Source File"
     
     ' Format headers
     ws.Range("A1:D1").Font.Bold = True
@@ -1336,6 +1362,8 @@ Sub ParseFirmwareLogContents()
     ' Use a dynamic approach that finds files with spaces in names
     Dim fileCount As Long
     fileCount = 0
+    
+
     
     ' Search for files with different patterns to handle spaces
     Dim searchPatterns(1 To 3) As String
@@ -1388,28 +1416,23 @@ Sub ParseFirmwareLogContents()
     End If
     
     ' Add summary information
-    ws.Cells(row + 1, 1).Value = "Summary:"
+    ws.Cells(row + 1, 1).value = "Summary:"
     ws.Cells(row + 1, 1).Font.Bold = True
-    ws.Cells(row + 2, 1).Value = "Date Filter:"
-    ws.Cells(row + 2, 2).Value = targetDate
-    ws.Cells(row + 3, 1).Value = "Serial Number:"
-    ws.Cells(row + 3, 2).Value = serialNumber
-    ws.Cells(row + 4, 1).Value = "Total Entries:"
-    ws.Cells(row + 4, 2).Value = totalEntries
-    ws.Cells(row + 5, 1).Value = "Files Processed:"
-    ws.Cells(row + 5, 2).Value = filesProcessed
-    ws.Cells(row + 6, 1).Value = "Cutoff Date:"
-    ws.Cells(row + 6, 2).Value = cutoffDate
+    ws.Cells(row + 2, 1).value = "Date Filter:"
+    ws.Cells(row + 2, 2).value = targetDate
+    ws.Cells(row + 3, 1).value = "Serial Number:"
+    ws.Cells(row + 3, 2).value = serialNumber
+    ws.Cells(row + 4, 1).value = "Total Entries:"
+    ws.Cells(row + 4, 2).value = totalEntries
+    ws.Cells(row + 5, 1).value = "Files Processed:"
+    ws.Cells(row + 5, 2).value = filesProcessed
+    ws.Cells(row + 6, 1).value = "Cutoff Date:"
+    ws.Cells(row + 6, 2).value = cutoffDate
     
     ' Activate the new sheet
     ws.Activate
     
     Application.ScreenUpdating = True
-    
-    ' Show completion message
-    MsgBox "Parsed " & totalEntries & " log entries from " & filesProcessed & " firmware log files." & vbNewLine & _
-           "Results listed in sheet: " & sheetName & vbNewLine & _
-           "Filtered to date from filename: " & cutoffDate, vbInformation
     
     Exit Sub
     
@@ -1570,9 +1593,14 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
     fileNum = FreeFile
     Open filePath For Input As fileNum
     
+    ' Debug: Show file opened successfully
+    Dim linesRead As Long
+    linesRead = 0
+    
     ' Read each line
     Do While Not EOF(fileNum)
         Line Input #fileNum, lineText
+        linesRead = linesRead + 1
         
         ' Skip empty lines
         If Trim(lineText) <> "" Then
@@ -1581,10 +1609,10 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
                 ' Check if entry is from current date
                 If logDate >= cutoffDate Then
                     ' Add to worksheet
-                    ws.Cells(row, 1).Value = logDate
-                    ws.Cells(row, 2).Value = logTime
-                    ws.Cells(row, 3).Value = message
-                    ws.Cells(row, 4).Value = fileName
+                    ws.Cells(row, 1).value = logDate
+                    ws.Cells(row, 2).value = logTime
+                    ws.Cells(row, 3).value = message
+                    ws.Cells(row, 4).value = fileName
                     
                     ' Format date column
                     ws.Cells(row, 1).NumberFormat = "mm/dd/yyyy"
@@ -1598,6 +1626,13 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
     
     ' Close the file
     Close fileNum
+    
+    ' Debug: Add file info to worksheet for tracking
+    ws.Cells(row, 1).value = "=== FILE PROCESSED ==="
+    ws.Cells(row, 2).value = fileName
+    ws.Cells(row, 3).value = "Lines read: " & linesRead
+    ws.Cells(row, 4).value = "Total entries so far: " & totalEntries
+    row = row + 1
     
     Exit Sub
     
@@ -1658,7 +1693,7 @@ Function ParseLogEntry(lineText As String, ByRef logDate As Date, ByRef logTime 
         Dim fullDateTime As Date
         fullDateTime = CDate(dateTimeStr & " " & timeStr)
         logDate = DateValue(fullDateTime)
-        logTime = TimeValue(fullDateTime)
+        logTime = timeValue(fullDateTime)
         ParseLogEntry = True
         Exit Function
     End If
@@ -1669,3 +1704,91 @@ Function ParseLogEntry(lineText As String, ByRef logDate As Date, ByRef logTime 
 ErrorHandler:
     ParseLogEntry = False
 End Function
+
+'/**
+' * Flags changes in LPH2 by comparing column J to column AA when column S equals 1
+' * Changes text color of cells in column J when values are not very close to each other
+' */
+Sub FlagLPH2Changes()
+    On Error GoTo ErrorHandler
+    
+    Application.ScreenUpdating = False
+    
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+    
+    Dim i As Long
+    Dim solenoidValue As Variant
+    Dim lph2Value As Variant
+    Dim comparisonValue As Variant
+    Dim difference As Double
+    Dim percentDifference As Double
+    
+    ' Color for flagged cells (red text)
+    Dim FLAG_COLOR As Long
+    FLAG_COLOR = RGB(255, 0, 0)  ' Red text
+    
+    For i = 2 To lastRow
+        ' Show progress every 100 rows
+        If i Mod 100 = 0 Then
+            Application.StatusBar = "Flagging LPH2 changes: Processing row " & i & " of " & lastRow & "..."
+            DoEvents
+        End If
+        
+        ' Check if we have valid data in the required columns
+        If SOLENOID_COLUMN <= ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column And _
+           LPH2_COLUMN <= ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column And _
+           COMPARISON_COLUMN <= ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column And _
+           Not IsEmpty(ws.Cells(i, SOLENOID_COLUMN).value) And _
+           Not IsEmpty(ws.Cells(i, LPH2_COLUMN).value) And _
+           Not IsEmpty(ws.Cells(i, COMPARISON_COLUMN).value) And _
+           IsNumeric(ws.Cells(i, SOLENOID_COLUMN).value) And _
+           IsNumeric(ws.Cells(i, LPH2_COLUMN).value) And _
+           IsNumeric(ws.Cells(i, COMPARISON_COLUMN).value) Then
+            
+            solenoidValue = ws.Cells(i, SOLENOID_COLUMN).value
+            lph2Value = ws.Cells(i, LPH2_COLUMN).value
+            comparisonValue = ws.Cells(i, COMPARISON_COLUMN).value
+            
+            ' Check if solenoid is on (column S = 1)
+            If solenoidValue = 1 Then
+                ' Calculate the difference between column J and column AA
+                difference = Abs(lph2Value - comparisonValue)
+                
+                ' Calculate percentage difference based on the larger value
+                If comparisonValue <> 0 Then
+                    percentDifference = (difference / Abs(comparisonValue)) * 100
+                ElseIf lph2Value <> 0 Then
+                    percentDifference = (difference / Abs(lph2Value)) * 100
+                Else
+                    percentDifference = 0
+                End If
+                
+                ' Flag the cell if the difference is significant (above threshold)
+                If percentDifference > LPH2_COMPARISON_THRESHOLD * 100 Then
+                    ws.Cells(i, LPH2_COLUMN).Font.Color = FLAG_COLOR
+                Else
+                    ' Reset to default color if difference is within threshold
+                    ws.Cells(i, LPH2_COLUMN).Font.Color = RGB(0, 0, 0)  ' Black
+                End If
+            Else
+                ' Reset to default color when solenoid is off
+                ws.Cells(i, LPH2_COLUMN).Font.Color = RGB(0, 0, 0)  ' Black
+            End If
+        Else
+            ' Reset to default color if data is missing or invalid
+            ws.Cells(i, LPH2_COLUMN).Font.Color = RGB(0, 0, 0)  ' Black
+        End If
+    Next i
+    
+    Application.ScreenUpdating = True
+    Exit Sub
+    
+ErrorHandler:
+    Application.ScreenUpdating = True
+    MsgBox "Error in FlagLPH2Changes: " & Err.Description, vbExclamation
+End Sub
+
