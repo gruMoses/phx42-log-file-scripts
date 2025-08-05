@@ -425,6 +425,8 @@ Sub ReadingsLogfile()
     
     Call ParseFirmwareLogContents(dataWorkbook)
     
+
+    
     ' Save as Excel file
     Application.StatusBar = "Saving processed file..."
     DoEvents
@@ -1606,8 +1608,34 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
         If Trim(lineText) <> "" Then
             ' Try to parse the log entry
             If ParseLogEntry(lineText, logDate, logTime, message) Then
-                ' Check if entry is from current date
-                If logDate >= cutoffDate Then
+                            ' Debug: Check if this is a shutdown message
+            If InStr(1, UCase(message), "OUTMSG: SHUT") > 0 Then
+                ws.Cells(row, 5).value = "SHUTDOWN FOUND - Date: " & logDate & " Cutoff: " & cutoffDate
+                
+                ' Debug: Write to main sheet
+                ActiveWorkbook.Sheets(1).Cells(2, 9).Value = "SHUTDOWN FOUND IN PARSE - Date: " & logDate & " Message: " & Left(message, 50)
+                
+                ' Check for specific filter missing message
+                If InStr(1, UCase(message), "FEELS LIKE YOU JUST REMOVED MY FILTER") > 0 And _
+                   InStr(1, UCase(message), "PLEASE GIVE ME A FRESH FILTER") > 0 Then
+                    ActiveWorkbook.Sheets(1).Cells(2, 11).Value = "FILTER MISSING FOUND IN PARSE - Date: " & logDate & " Time: " & logTime
+                    
+                    ' Debug: Check if this entry will be written to the sheet
+                    If logDate >= cutoffDate - 7 Then
+                        ActiveWorkbook.Sheets(1).Cells(2, 13).Value = "WILL BE WRITTEN TO SHEET"
+                    Else
+                        ActiveWorkbook.Sheets(1).Cells(2, 13).Value = "WILL BE FILTERED OUT"
+                    End If
+                End If
+            End If
+                
+                ' Check if entry is from current date or within 7 days before
+                If logDate >= cutoffDate - 7 Then
+                    ' Debug: Check if this is the filter missing message
+                    If InStr(1, UCase(message), "FEELS LIKE YOU JUST REMOVED MY FILTER") > 0 Then
+                        ActiveWorkbook.Sheets(1).Cells(2, 15).Value = "WRITING FILTER MISSING TO SHEET AT ROW " & row
+                    End If
+                    
                     ' Add to worksheet
                     ws.Cells(row, 1).value = logDate
                     ws.Cells(row, 2).value = logTime
@@ -1619,6 +1647,10 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
                     
                     row = row + 1
                     totalEntries = totalEntries + 1
+                Else
+                    ' Debug: Mark filtered out entries
+                    ws.Cells(row, 6).value = "FILTERED OUT - Date: " & logDate & " Cutoff: " & cutoffDate
+                    row = row + 1
                 End If
             End If
         End If
@@ -1791,4 +1823,6 @@ ErrorHandler:
     Application.ScreenUpdating = True
     MsgBox "Error in FlagLPH2Changes: " & Err.Description, vbExclamation
 End Sub
+
+
 
