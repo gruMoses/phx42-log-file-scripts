@@ -227,6 +227,7 @@ Sub CreatePressurePowerChart()
     
     ' Add scroll bars for pan/zoom
     Dim sbStart As Shape, sbWin As Shape
+    On Error Resume Next
     Set sbStart = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=20, Top:=30, Width:=400, Height:=16)
     With sbStart.ControlFormat
         .Min = 0
@@ -237,6 +238,8 @@ Sub CreatePressurePowerChart()
     End With
     
     Set sbWin = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=440, Top:=30, Width:=400, Height:=16)
+    On Error GoTo 0
+    On Error Resume Next
     With sbWin.ControlFormat
         .Min = 50
         .Max = Application.WorksheetFunction.Max(100, lastRow - 1)
@@ -248,6 +251,7 @@ Sub CreatePressurePowerChart()
     ' Display basic labels over the scrollbars
     chartWs.Range("C1").Value = "← pan →"
     chartWs.Range("H1").Value = "zoom"
+    On Error GoTo ErrorHandler
     
     chartWs.Activate
     
@@ -260,12 +264,23 @@ End Sub
 ' Finds column index by exact header match (case-insensitive). Returns 0 if not found.
 Private Function FindHeaderColumn(ws As Worksheet, headerText As String) As Long
     Dim lastCol As Long, c As Long
+    Dim target As String, h As String
+    target = LCase(Trim(headerText))
     lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
     For c = 1 To lastCol
-        If LCase(Trim(CStr(ws.Cells(1, c).Value))) = LCase(headerText) Then
+        h = LCase(Trim(CStr(ws.Cells(1, c).Value)))
+        ' Exact match first
+        If h = target Then
             FindHeaderColumn = c
             Exit Function
         End If
+        ' Accept common synonyms from raw headers
+        Select Case target
+            Case "spress": If h = "sample pressure" Then FindHeaderColumn = c: Exit Function
+            Case "cpress": If h = "combustion pressure" Then FindHeaderColumn = c: Exit Function
+            Case "sppl":   If h = "sample ppl" Then FindHeaderColumn = c: Exit Function
+            Case "cppl":   If h = "combustion ppl" Then FindHeaderColumn = c: Exit Function
+        End Select
     Next c
     FindHeaderColumn = 0
 End Function
