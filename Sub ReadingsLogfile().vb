@@ -87,12 +87,14 @@ End Sub
 Sub CreatePressurePowerChart()
     On Error GoTo ErrorHandler
     
+    EnableChartDebugLogging IIf(ActiveWorkbook Is Nothing, CurDir(), ActiveWorkbook.Path)
+    Call LogDebug("Enter CreatePressurePowerChart")
     Dim dataWs As Worksheet
     Set dataWs = ActiveSheet
+    Call LogDebug("ActiveSheet name=" & dataWs.Name)
     Dim dataWb As Workbook
     Set dataWb = dataWs.Parent
-    EnableChartDebugLogging dataWb.Path
-    Call LogDebug("CreatePressurePowerChart: ActiveSheet=" & dataWs.Name & ", wbPath=" & dataWb.Path)
+    Call LogDebug("Workbook path=" & dataWb.Path)
     
     ' Determine last row and last column
     Dim lastRow As Long, lastCol As Long
@@ -304,6 +306,7 @@ Sub CreatePressurePowerChart()
     Exit Sub
     
 ErrorHandler:
+    EnableChartDebugLogging IIf(ActiveWorkbook Is Nothing, CurDir(), ActiveWorkbook.Path)
     Call LogDebug("ERROR: " & Err.Number & " - " & Err.Description)
     MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
 End Sub
