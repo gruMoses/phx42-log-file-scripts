@@ -36,16 +36,55 @@ Private Sub InitializeColors()
     COLOR_LIGHT_GREEN = RGB(144, 238, 144)
     COLOR_LIGHT_RED = RGB(255, 182, 193)
 
+' Logging globals
+Private g_LoggingEnabled As Boolean
+Private g_LogFilePath As String
+Private g_Step As String
+
+Private Sub EnableChartDebugLogging(Optional ByVal logFolder As String = "")
+    g_LoggingEnabled = False
+    g_LogFilePath = ""
 End Sub
 
+Private Sub LogDebug(ByVal message As String)
+End Sub
+
+Private Sub DisableChartDebugLogging()
+    g_LoggingEnabled = False
+End Sub
+
+Private Function GetActiveWorkbookPath() As String
+    On Error Resume Next
+    If Not ActiveWorkbook Is Nothing Then
+        If ActiveWorkbook.Path <> "" Then
+            GetActiveWorkbookPath = ActiveWorkbook.Path
+        Else
+            GetActiveWorkbookPath = CurDir()
+        End If
+    Else
+        GetActiveWorkbookPath = CurDir()
+    End If
+End Function
+
+Private Sub StepTag(ByVal tag As String)
+    g_Step = tag
+    Call LogDebug("STEP: " & tag)
+End Sub
+
+'/**
+' * Creates an interactive chart for low pressure sensors and pump power levels
+' * - Uses primary axis for pressures (sPress, cPress)
+' * - Uses secondary axis for pump power levels (sPPL, cPPL)
+' * - Adds scroll bars to zoom/pan over long logs
+' * - Dynamic named ranges keep the chart updated as you adjust controls
+' */
 Sub CreatePressurePowerChart()
     On Error GoTo ErrorHandler
-    g_Step = "init"
     
     Dim wbPath As String
     wbPath = GetActiveWorkbookPath()
     EnableChartDebugLogging wbPath
-    g_Step = "enter"
+    Call StepTag("enter")
     Dim dataWs As Worksheet
     Set dataWs = ActiveSheet
     Call LogDebug("ActiveSheet name=" & dataWs.Name)
@@ -132,15 +171,35 @@ Sub CreatePressurePowerChart()
     chartWs.Range("A4").Value = "Tip: Use the scroll bars to pan/zoom."
     chartWs.Range("A5").Value = "Primary axis: Pressures (sPress, cPress). Secondary axis: Pump power (sPPL, cPPL)."
     
-    ' Build ranges directly from the data (no workbook names)
-    Dim xRange As Range
-    Dim rSPress As Range, rCPress As Range, rSPPL As Range, rCPPL As Range
-    Set xRange = dataWs.Range(dataWs.Cells(2, colTime), dataWs.Cells(lastRow, colTime))
-    If colSPress > 0 Then Set rSPress = dataWs.Range(dataWs.Cells(2, colSPress), dataWs.Cells(lastRow, colSPress))
-    If colCPress > 0 Then Set rCPress = dataWs.Range(dataWs.Cells(2, colCPress), dataWs.Cells(lastRow, colCPress))
-    If colSPPL > 0 Then Set rSPPL = dataWs.Range(dataWs.Cells(2, colSPPL), dataWs.Cells(lastRow, colSPPL))
-    If colCPPL > 0 Then Set rCPPL = dataWs.Range(dataWs.Cells(2, colCPPL), dataWs.Cells(lastRow, colCPPL))
-' Create the chart
+    ' Build robust named ranges for X and Y series with clamped offsets
+    Dim dataWsName As String, chartWsName As String
+    dataWsName = dataWs.Name
+    chartWsName = chartWs.Name
+    
+    ' Helper names
+    Call StepTag("creating names")
+    AddOrReplaceNameInWb dataWb, "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
+    AddOrReplaceNameInWb dataWb, "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
+    AddOrReplaceNameInWb dataWb, "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
+    
+    ' X values
+    AddOrReplaceNameInWb dataWb, "PP_X", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colTime).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    
+    ' Series named ranges (only if columns exist)
+    If colSPress > 0 Then
+        AddOrReplaceNameInWb dataWb, "PP_sPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    If colCPress > 0 Then
+        AddOrReplaceNameInWb dataWb, "PP_cPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    If colSPPL > 0 Then
+        AddOrReplaceNameInWb dataWb, "PP_sPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    If colCPPL > 0 Then
+        AddOrReplaceNameInWb dataWb, "PP_cPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    
+    ' Create the chart
     Dim co As ChartObject
     ' Use a fixed, visible size so the chart renders clearly on a cleared sheet
     Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=1200, Height:=500)
@@ -157,8 +216,8 @@ Sub CreatePressurePowerChart()
         If colSPress > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "sPress"
-                .XValues = xRange
-                .Values = rSPress
+                .XValues = "=PP_X"
+                .Values = "=PP_sPress"
                 .AxisGroup = xlPrimary
                 .Format.Line.ForeColor.RGB = RGB(33, 150, 243) ' blue
                 .Format.Line.Weight = 2.25
@@ -167,8 +226,8 @@ Sub CreatePressurePowerChart()
         If colCPress > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "cPress"
-                .XValues = xRange
-                .Values = rCPress
+                .XValues = "=PP_X"
+                .Values = "=PP_cPress"
                 .AxisGroup = xlPrimary
                 .Format.Line.ForeColor.RGB = RGB(76, 175, 80) ' green
                 .Format.Line.Weight = 2.25
@@ -179,8 +238,8 @@ Sub CreatePressurePowerChart()
         If colSPPL > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "sPPL"
-                .XValues = xRange
-                .Values = rSPPL
+                .XValues = "=PP_X"
+                .Values = "=PP_sPPL"
                 .AxisGroup = xlSecondary
                 .Format.Line.ForeColor.RGB = RGB(255, 152, 0) ' orange
                 .Format.Line.Weight = 2.25
@@ -189,8 +248,8 @@ Sub CreatePressurePowerChart()
         If colCPPL > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "cPPL"
-                .XValues = xRange
-                .Values = rCPPL
+                .XValues = "=PP_X"
+                .Values = "=PP_cPPL"
                 .AxisGroup = xlSecondary
                 .Format.Line.ForeColor.RGB = RGB(233, 30, 99) ' pink/red
                 .Format.Line.Weight = 2.25
@@ -212,8 +271,34 @@ Sub CreatePressurePowerChart()
         End With
     End With
     
-    ' Scrollbars removed for macOS stability
-On Error GoTo ErrorHandler
+    Call StepTag("scrollbars start")
+    ' Add scroll bars for pan/zoom
+    Dim sbStart As Shape, sbWin As Shape
+    On Error Resume Next
+    Set sbStart = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=20, Top:=30, Width:=400, Height:=16)
+    With sbStart.ControlFormat
+        .Min = 0
+        .Max = Application.WorksheetFunction.Max(1, (lastRow - 1) - chartWs.Range("B2").Value)
+        .SmallChange = 1
+        .LargeChange = Application.WorksheetFunction.Max(10, chartWs.Range("B2").Value \ 10)
+        .LinkedCell = chartWs.Range("B1").Address
+    End With
+    
+    Set sbWin = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=440, Top:=30, Width:=400, Height:=16)
+    On Error GoTo 0
+    On Error Resume Next
+    With sbWin.ControlFormat
+        .Min = 50
+        .Max = Application.WorksheetFunction.Max(100, lastRow - 1)
+        .SmallChange = 10
+        .LargeChange = 100
+        .LinkedCell = chartWs.Range("B2").Address
+    End With
+    
+    ' Display basic labels over the scrollbars
+    chartWs.Range("C1").Value = "← pan →"
+    chartWs.Range("H1").Value = "zoom"
+    On Error GoTo ErrorHandler
     
     chartWs.Activate
     Call LogDebug("SUCCESS")
@@ -221,19 +306,6 @@ On Error GoTo ErrorHandler
     Exit Sub
     
 ErrorHandler:
-    Dim errNum As Long, errDesc As String, errStep As String
-    errNum = Err.Number: errDesc = Err.Description: errStep = g_Step
-    On Error Resume Next
-    Dim logPath As String
-    Dim ff As Integer
-    logPath = GetActiveWorkbookPath()
-    If Right$(logPath, 1) <> Application.PathSeparator Then logPath = logPath & Application.PathSeparator
-    logPath = logPath & "phx42_chart_debug.log"
-    ff = FreeFile
-    Open logPath For Append As #ff
-    Print #ff, Format$(Now, "yyyy-mm-dd hh:nn:ss") & " ERROR: step=" & errStep & " code=" & CStr(errNum) & " - " & errDesc
-    Close #ff
-    On Error GoTo 0
     MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
 End Sub
 
@@ -676,7 +748,7 @@ Sub ReadingsLogfile()
 ErrorHandler:
     Application.ScreenUpdating = True
     Application.Calculation = xlCalculationAutomatic
-    MsgBox "Error in ReadingsLogfile: " & Err.Description, vbExclamation
+    MsgBox "Error in ReadingsLogfile: " & Err.Description, vbExclamation 
 End Sub
 
 '/**
