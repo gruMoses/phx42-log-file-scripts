@@ -39,6 +39,7 @@ Private Sub InitializeColors()
 ' Logging globals
 Private g_LoggingEnabled As Boolean
 Private g_LogFilePath As String
+Private g_Step As String
 
 Private Sub EnableChartDebugLogging(Optional ByVal logFolder As String = "")
     On Error Resume Next
@@ -75,6 +76,12 @@ Private Sub DisableChartDebugLogging()
     g_LoggingEnabled = False
 End Sub
 
+Private Sub StepTag(ByVal tag As String)
+    g_Step = tag
+    Call LogDebug("STEP: " & tag)
+End Sub
+
+
 End Sub
 
 '/**
@@ -88,7 +95,7 @@ Sub CreatePressurePowerChart()
     On Error GoTo ErrorHandler
     
     EnableChartDebugLogging IIf(ActiveWorkbook Is Nothing, CurDir(), ActiveWorkbook.Path)
-    Call LogDebug("Enter CreatePressurePowerChart")
+    Call StepTag("enter")
     Dim dataWs As Worksheet
     Set dataWs = ActiveSheet
     Call LogDebug("ActiveSheet name=" & dataWs.Name)
@@ -99,6 +106,7 @@ Sub CreatePressurePowerChart()
     ' Determine last row and last column
     Dim lastRow As Long, lastCol As Long
     lastRow = dataWs.Cells(dataWs.Rows.Count, 1).End(xlUp).Row
+    Call StepTag("lastrow=" & lastRow)
     lastCol = dataWs.Cells(1, dataWs.Columns.Count).End(xlToLeft).Column
     If lastRow < 3 Then
         MsgBox "Not enough data rows to chart.", vbExclamation
@@ -140,7 +148,7 @@ Sub CreatePressurePowerChart()
         MsgBox "Could not find pressure columns (sPress/cPress) in the header row.", vbExclamation
         Exit Sub
     End If
-    Call LogDebug("Header lookup initial: sPress=" & colSPress & ", cPress=" & colCPress & ", sPPL=" & colSPPL & ", cPPL=" & colCPPL)
+    Call StepTag("headers initial: sPress=" & colSPress & ", cPress=" & colCPress & ", sPPL=" & colSPPL & ", cPPL=" & colCPPL)
     If colSPPL = 0 And colCPPL = 0 Then
         MsgBox "Could not find pump power level columns (sPPL/cPPL) in the header row.", vbExclamation
         Exit Sub
@@ -162,10 +170,11 @@ Sub CreatePressurePowerChart()
         Next shp
     End If
     
-    Call LogDebug("Using data sheet: " & dataWs.Name & " lastRow pre-recalc=" & lastRow)
+    Call StepTag("using data sheet: " & dataWs.Name & " lastRow pre-recalc=" & lastRow)
     ' UI labels and default zoom settings
     ' Recalculate lastRow in case dataWs changed during auto-detect
     lastRow = dataWs.Cells(dataWs.Rows.Count, 1).End(xlUp).Row
+    Call StepTag("lastrow=" & lastRow)
     chartWs.Range("A1").Value = "Zoom start (points)"
     chartWs.Range("A2").Value = "Window size (points)"
     chartWs.Range("B1").Value = 0
@@ -179,7 +188,7 @@ Sub CreatePressurePowerChart()
     chartWsName = chartWs.Name
     
     ' Helper names
-    Call LogDebug("Creating names and series")
+    Call StepTag("creating names")
     AddOrReplaceNameInWb dataWb, "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
     AddOrReplaceNameInWb dataWb, "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
     AddOrReplaceNameInWb dataWb, "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
@@ -206,7 +215,7 @@ Sub CreatePressurePowerChart()
     ' Use a fixed, visible size so the chart renders clearly on a cleared sheet
     Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=1200, Height:=500)
     co.Name = "PressurePowerChartObject"
-    Call LogDebug("Chart object created")
+    Call StepTag("chart created")
     
     With co.Chart
         .ChartType = xlXYScatterLinesNoMarkers
@@ -273,6 +282,7 @@ Sub CreatePressurePowerChart()
         End With
     End With
     
+    Call StepTag("scrollbars start")
     ' Add scroll bars for pan/zoom
     Dim sbStart As Shape, sbWin As Shape
     On Error Resume Next
@@ -302,6 +312,7 @@ Sub CreatePressurePowerChart()
     On Error GoTo ErrorHandler
     
     chartWs.Activate
+    Call LogDebug("SUCCESS")
     
     Exit Sub
     
@@ -318,7 +329,7 @@ ErrorHandler:
     logPath = logPath & "phx42_chart_debug.log"
     ff = FreeFile
     Open logPath For Append As #ff
-    Print #ff, Format$(Now, "yyyy-mm-dd hh:nn:ss") & " ERROR: " & CStr(Err.Number) & " - " & Err.Description
+    Print #ff, Format$(Now, "yyyy-mm-dd hh:nn:ss") & " ERROR: step=" & g_Step & " code=" & CStr(Err.Number) & " - " & Err.Description
     Close #ff
     On Error GoTo 0
     MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
