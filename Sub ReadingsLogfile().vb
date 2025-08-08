@@ -81,9 +81,6 @@ Private Sub StepTag(ByVal tag As String)
     Call LogDebug("STEP: " & tag)
 End Sub
 
-
-End Sub
-
 '/**
 ' * Creates an interactive chart for low pressure sensors and pump power levels
 ' * - Uses primary axis for pressures (sPress, cPress)
