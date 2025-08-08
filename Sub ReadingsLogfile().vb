@@ -36,6 +36,8 @@ Private Sub InitializeColors()
     COLOR_LIGHT_GREEN = RGB(144, 238, 144)
     COLOR_LIGHT_RED = RGB(255, 182, 193)
 
+End Sub
+
 ' Logging globals
 Private g_LoggingEnabled As Boolean
 Private g_LogFilePath As String
