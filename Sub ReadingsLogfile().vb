@@ -274,11 +274,8 @@ Sub CreatePressurePowerChart()
         End With
     End With
     
-    Call StepTag("scrollbars start")
-    ' Scrollbars disabled on macOS for stability
-chartWs.Range("C1").Value = "Use Cmd+MouseWheel or trackpad pinch to zoom; drag chart axes to pan"
-    chartWs.Range("H1").Value = ""
-    On Error GoTo ErrorHandler
+    ' Scrollbars removed for macOS stability
+On Error GoTo ErrorHandler
     
     chartWs.Activate
     Call LogDebug("SUCCESS")
