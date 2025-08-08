@@ -201,24 +201,32 @@ Sub CreatePressurePowerChart()
     
     ' Helper names
     Call StepTag("creating names")
+    Call StepTag("name PP_TotalRows")
     AddOrReplaceNameInWb dataWb, "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
+    Call StepTag("name PP_StartOffset")
     AddOrReplaceNameInWb dataWb, "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
+    Call StepTag("name PP_WindowLen")
     AddOrReplaceNameInWb dataWb, "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
     
     ' X values
+    Call StepTag("name PP_X")
     AddOrReplaceNameInWb dataWb, "PP_X", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colTime).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     
     ' Series named ranges (only if columns exist)
     If colSPress > 0 Then
+        Call StepTag("name PP_sPress")
         AddOrReplaceNameInWb dataWb, "PP_sPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     If colCPress > 0 Then
+        Call StepTag("name PP_cPress")
         AddOrReplaceNameInWb dataWb, "PP_cPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     If colSPPL > 0 Then
+        Call StepTag("name PP_sPPL")
         AddOrReplaceNameInWb dataWb, "PP_sPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     If colCPPL > 0 Then
+        Call StepTag("name PP_cPPL")
         AddOrReplaceNameInWb dataWb, "PP_cPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     
