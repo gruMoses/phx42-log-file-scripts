@@ -118,6 +118,8 @@ Sub CreatePressurePowerChart()
     End If
     
     ' UI labels and default zoom settings
+    ' Recalculate lastRow in case dataWs changed during auto-detect
+    lastRow = dataWs.Cells(dataWs.Rows.Count, 1).End(xlUp).Row
     chartWs.Range("A1").Value = "Zoom start (points)"
     chartWs.Range("A2").Value = "Window size (points)"
     chartWs.Range("B1").Value = 0
