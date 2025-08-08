@@ -41,7 +41,7 @@ Private g_LoggingEnabled As Boolean
 Private g_LogFilePath As String
 Private g_Step As String
 
-Private Sub EnableChartDebugLogging(Optional ByVal logFolder As String = "")
+Private Sub EnableChartDebugLogging(Optional ByVal logFolder As String)
     On Error Resume Next
     g_LoggingEnabled = True
     Dim sep As String
