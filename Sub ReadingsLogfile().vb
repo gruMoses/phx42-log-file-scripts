@@ -35,6 +35,46 @@ Private COLOR_LIGHT_RED As Long
 Private Sub InitializeColors()
     COLOR_LIGHT_GREEN = RGB(144, 238, 144)
     COLOR_LIGHT_RED = RGB(255, 182, 193)
+
+' Logging globals
+Private g_LoggingEnabled As Boolean
+Private g_LogFilePath As String
+
+Private Sub EnableChartDebugLogging(Optional ByVal logFolder As String = "")
+    On Error Resume Next
+    g_LoggingEnabled = True
+    Dim sep As String
+    sep = Application.PathSeparator
+    Dim folder As String
+    If logFolder <> "" Then
+        folder = logFolder
+    ElseIf ActiveWorkbook.Path <> "" Then
+        folder = ActiveWorkbook.Path
+    Else
+        folder = CurDir()
+    End If
+    If Right(folder, 1) <> "/" And Right(folder, 1) <> "\" Then folder = folder & sep
+    g_LogFilePath = folder & "phx42_chart_debug.log"
+    Dim ff As Integer: ff = FreeFile
+    Open g_LogFilePath For Append As #ff
+    Print #ff, Format(Now, "yyyy-mm-dd hh:nn:ss"), "--- logging started ---"
+    Close #ff
+End Sub
+
+Private Sub LogDebug(ByVal message As String)
+    On Error Resume Next
+    If Not g_LoggingEnabled Then Exit Sub
+    If g_LogFilePath = "" Then Exit Sub
+    Dim ff As Integer: ff = FreeFile
+    Open g_LogFilePath For Append As #ff
+    Print #ff, Format(Now, "yyyy-mm-dd hh:nn:ss"), message
+    Close #ff
+End Sub
+
+Private Sub DisableChartDebugLogging()
+    g_LoggingEnabled = False
+End Sub
+
 End Sub
 
 '/**
@@ -51,6 +91,8 @@ Sub CreatePressurePowerChart()
     Set dataWs = ActiveSheet
     Dim dataWb As Workbook
     Set dataWb = dataWs.Parent
+    EnableChartDebugLogging dataWb.Path
+    Call LogDebug("CreatePressurePowerChart: ActiveSheet=" & dataWs.Name & ", wbPath=" & dataWb.Path)
     
     ' Determine last row and last column
     Dim lastRow As Long, lastCol As Long
@@ -96,6 +138,7 @@ Sub CreatePressurePowerChart()
         MsgBox "Could not find pressure columns (sPress/cPress) in the header row.", vbExclamation
         Exit Sub
     End If
+    Call LogDebug("Header lookup initial: sPress=" & colSPress & ", cPress=" & colCPress & ", sPPL=" & colSPPL & ", cPPL=" & colCPPL)
     If colSPPL = 0 And colCPPL = 0 Then
         MsgBox "Could not find pump power level columns (sPPL/cPPL) in the header row.", vbExclamation
         Exit Sub
@@ -117,6 +160,7 @@ Sub CreatePressurePowerChart()
         Next shp
     End If
     
+    Call LogDebug("Using data sheet: " & dataWs.Name & " lastRow pre-recalc=" & lastRow)
     ' UI labels and default zoom settings
     ' Recalculate lastRow in case dataWs changed during auto-detect
     lastRow = dataWs.Cells(dataWs.Rows.Count, 1).End(xlUp).Row
@@ -133,6 +177,7 @@ Sub CreatePressurePowerChart()
     chartWsName = chartWs.Name
     
     ' Helper names
+    Call LogDebug("Creating names and series")
     AddOrReplaceNameInWb dataWb, "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
     AddOrReplaceNameInWb dataWb, "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
     AddOrReplaceNameInWb dataWb, "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
@@ -159,6 +204,7 @@ Sub CreatePressurePowerChart()
     ' Use a fixed, visible size so the chart renders clearly on a cleared sheet
     Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=1200, Height:=500)
     co.Name = "PressurePowerChartObject"
+    Call LogDebug("Chart object created")
     
     With co.Chart
         .ChartType = xlXYScatterLinesNoMarkers
@@ -258,6 +304,7 @@ Sub CreatePressurePowerChart()
     Exit Sub
     
 ErrorHandler:
+    Call LogDebug("ERROR: " & Err.Number & " - " & Err.Description)
     MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
 End Sub
 
