@@ -76,6 +76,19 @@ Private Sub DisableChartDebugLogging()
     g_LoggingEnabled = False
 End Sub
 
+Private Function GetActiveWorkbookPath() As String
+    On Error Resume Next
+    If Not ActiveWorkbook Is Nothing Then
+        If ActiveWorkbook.Path <> "" Then
+            GetActiveWorkbookPath = ActiveWorkbook.Path
+        Else
+            GetActiveWorkbookPath = CurDir()
+        End If
+    Else
+        GetActiveWorkbookPath = CurDir()
+    End If
+End Function
+
 Private Sub StepTag(ByVal tag As String)
     g_Step = tag
     Call LogDebug("STEP: " & tag)
@@ -91,7 +104,9 @@ End Sub
 Sub CreatePressurePowerChart()
     On Error GoTo ErrorHandler
     
-    EnableChartDebugLogging IIf(ActiveWorkbook Is Nothing, CurDir(), ActiveWorkbook.Path)
+    Dim wbPath As String
+    wbPath = GetActiveWorkbookPath()
+    EnableChartDebugLogging wbPath
     Call StepTag("enter")
     Dim dataWs As Worksheet
     Set dataWs = ActiveSheet
@@ -314,19 +329,17 @@ Sub CreatePressurePowerChart()
     Exit Sub
     
 ErrorHandler:
+    Dim errNum As Long, errDesc As String, errStep As String
+    errNum = Err.Number: errDesc = Err.Description: errStep = g_Step
     On Error Resume Next
     Dim logPath As String
     Dim ff As Integer
-    If Not ActiveWorkbook Is Nothing Then
-        logPath = ActiveWorkbook.Path
-    Else
-        logPath = CurDir()
-    End If
+    logPath = GetActiveWorkbookPath()
     If Right$(logPath, 1) <> Application.PathSeparator Then logPath = logPath & Application.PathSeparator
     logPath = logPath & "phx42_chart_debug.log"
     ff = FreeFile
     Open logPath For Append As #ff
-    Print #ff, Format$(Now, "yyyy-mm-dd hh:nn:ss") & " ERROR: step=" & g_Step & " code=" & CStr(Err.Number) & " - " & Err.Description
+    Print #ff, Format$(Now, "yyyy-mm-dd hh:nn:ss") & " ERROR: step=" & errStep & " code=" & CStr(errNum) & " - " & errDesc
     Close #ff
     On Error GoTo 0
     MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
