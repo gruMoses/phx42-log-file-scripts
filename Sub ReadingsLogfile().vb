@@ -38,6 +38,221 @@ Private Sub InitializeColors()
 End Sub
 
 '/**
+' * Creates an interactive chart for low pressure sensors and pump power levels
+' * - Uses primary axis for pressures (sPress, cPress)
+' * - Uses secondary axis for pump power levels (sPPL, cPPL)
+' * - Adds scroll bars to zoom/pan over long logs
+' * - Dynamic named ranges keep the chart updated as you adjust controls
+' */
+Sub CreatePressurePowerChart()
+    On Error GoTo ErrorHandler
+    
+    Dim dataWs As Worksheet
+    Set dataWs = ActiveSheet
+    
+    ' Determine last row and last column
+    Dim lastRow As Long, lastCol As Long
+    lastRow = dataWs.Cells(dataWs.Rows.Count, 1).End(xlUp).Row
+    lastCol = dataWs.Cells(1, dataWs.Columns.Count).End(xlToLeft).Column
+    If lastRow < 3 Then
+        MsgBox "Not enough data rows to chart.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Find columns by header names (row 1)
+    Dim colTime As Long
+    colTime = 1  ' Column A is time in this workbook
+    
+    Dim colSPress As Long, colCPress As Long, colSPPL As Long, colCPPL As Long
+    colSPress = FindHeaderColumn(dataWs, "sPress")
+    colCPress = FindHeaderColumn(dataWs, "cPress")
+    colSPPL = FindHeaderColumn(dataWs, "sPPL")
+    colCPPL = FindHeaderColumn(dataWs, "cPPL")
+    
+    If colSPress = 0 And colCPress = 0 Then
+        MsgBox "Could not find pressure columns (sPress/cPress) in the header row.", vbExclamation
+        Exit Sub
+    End If
+    If colSPPL = 0 And colCPPL = 0 Then
+        MsgBox "Could not find pump power level columns (sPPL/cPPL) in the header row.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Create or clear chart sheet
+    Dim chartWs As Worksheet
+    On Error Resume Next
+    Set chartWs = ThisWorkbook.Worksheets("PressurePowerChart")
+    On Error GoTo ErrorHandler
+    If chartWs Is Nothing Then
+        Set chartWs = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        chartWs.Name = "PressurePowerChart"
+    Else
+        chartWs.Cells.Clear
+        Dim shp As Shape
+        For Each shp In chartWs.Shapes
+            shp.Delete
+        Next shp
+    End If
+    
+    ' UI labels and default zoom settings
+    chartWs.Range("A1").Value = "Zoom start (points)"
+    chartWs.Range("A2").Value = "Window size (points)"
+    chartWs.Range("B1").Value = 0
+    chartWs.Range("B2").Value = Application.WorksheetFunction.Min(1000, lastRow - 1)
+    chartWs.Range("A4").Value = "Tip: Use the scroll bars to pan/zoom."
+    chartWs.Range("A5").Value = "Primary axis: Pressures (sPress, cPress). Secondary axis: Pump power (sPPL, cPPL)."
+    
+    ' Build robust named ranges for X and Y series with clamped offsets
+    Dim dataWsName As String, chartWsName As String
+    dataWsName = dataWs.Name
+    chartWsName = chartWs.Name
+    
+    ' Helper names
+    AddOrReplaceName "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
+    AddOrReplaceName "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
+    AddOrReplaceName "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
+    
+    ' X values
+    AddOrReplaceName "PP_X", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colTime).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    
+    ' Series named ranges (only if columns exist)
+    If colSPress > 0 Then
+        AddOrReplaceName "PP_sPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    If colCPress > 0 Then
+        AddOrReplaceName "PP_cPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    If colSPPL > 0 Then
+        AddOrReplaceName "PP_sPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    If colCPPL > 0 Then
+        AddOrReplaceName "PP_cPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    End If
+    
+    ' Create the chart
+    Dim co As ChartObject
+    Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=chartWs.UsedRange.Width * 8, Height:=420)
+    co.Name = "PressurePowerChartObject"
+    
+    With co.Chart
+        .ChartType = xlXYScatterLinesNoMarkers
+        .HasTitle = True
+        .ChartTitle.Text = "Low Pressure Sensors and Pump Power Levels"
+        .Legend.Position = xlLegendPositionBottom
+        
+        ' Add pressure series on primary axis
+        If colSPress > 0 Then
+            With .SeriesCollection.NewSeries
+                .Name = "sPress"
+                .XValues = "=PP_X"
+                .Values = "=PP_sPress"
+                .AxisGroup = xlPrimary
+                .Format.Line.ForeColor.RGB = RGB(33, 150, 243) ' blue
+                .Format.Line.Weight = 2.25
+            End With
+        End If
+        If colCPress > 0 Then
+            With .SeriesCollection.NewSeries
+                .Name = "cPress"
+                .XValues = "=PP_X"
+                .Values = "=PP_cPress"
+                .AxisGroup = xlPrimary
+                .Format.Line.ForeColor.RGB = RGB(76, 175, 80) ' green
+                .Format.Line.Weight = 2.25
+            End With
+        End If
+        
+        ' Add pump power level series on secondary axis
+        If colSPPL > 0 Then
+            With .SeriesCollection.NewSeries
+                .Name = "sPPL"
+                .XValues = "=PP_X"
+                .Values = "=PP_sPPL"
+                .AxisGroup = xlSecondary
+                .Format.Line.ForeColor.RGB = RGB(255, 152, 0) ' orange
+                .Format.Line.Weight = 2.25
+            End With
+        End If
+        If colCPPL > 0 Then
+            With .SeriesCollection.NewSeries
+                .Name = "cPPL"
+                .XValues = "=PP_X"
+                .Values = "=PP_cPPL"
+                .AxisGroup = xlSecondary
+                .Format.Line.ForeColor.RGB = RGB(233, 30, 99) ' pink/red
+                .Format.Line.Weight = 2.25
+            End With
+        End If
+        
+        ' Axes formatting
+        With .Axes(xlCategory, xlPrimary)
+            .HasTitle = True
+            .AxisTitle.Text = "Time"
+        End With
+        With .Axes(xlValue, xlPrimary)
+            .HasTitle = True
+            .AxisTitle.Text = "Pressure"
+        End With
+        With .Axes(xlValue, xlSecondary)
+            .HasTitle = True
+            .AxisTitle.Text = "Pump Power Level"
+        End With
+    End With
+    
+    ' Add scroll bars for pan/zoom
+    Dim sbStart As Shape, sbWin As Shape
+    Set sbStart = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=20, Top:=30, Width:=400, Height:=16)
+    With sbStart.ControlFormat
+        .Min = 0
+        .Max = Application.WorksheetFunction.Max(1, (lastRow - 1) - chartWs.Range("B2").Value)
+        .SmallChange = 1
+        .LargeChange = Application.WorksheetFunction.Max(10, chartWs.Range("B2").Value \ 10)
+        .LinkedCell = chartWs.Range("B1").Address
+    End With
+    
+    Set sbWin = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=440, Top:=30, Width:=400, Height:=16)
+    With sbWin.ControlFormat
+        .Min = 50
+        .Max = Application.WorksheetFunction.Max(100, lastRow - 1)
+        .SmallChange = 10
+        .LargeChange = 100
+        .LinkedCell = chartWs.Range("B2").Address
+    End With
+    
+    ' Display basic labels over the scrollbars
+    chartWs.Range("C1").Value = "← pan →"
+    chartWs.Range("H1").Value = "zoom"
+    
+    chartWs.Activate
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
+End Sub
+
+' Finds column index by exact header match (case-insensitive). Returns 0 if not found.
+Private Function FindHeaderColumn(ws As Worksheet, headerText As String) As Long
+    Dim lastCol As Long, c As Long
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        If LCase(Trim(CStr(ws.Cells(1, c).Value))) = LCase(headerText) Then
+            FindHeaderColumn = c
+            Exit Function
+        End If
+    Next c
+    FindHeaderColumn = 0
+End Function
+
+' Adds a workbook-level name, replacing it if it exists
+Private Sub AddOrReplaceName(ByVal nameText As String, ByVal refersToFormula As String)
+    On Error Resume Next
+    ThisWorkbook.Names(nameText).Delete
+    On Error GoTo 0
+    ThisWorkbook.Names.Add Name:=nameText, RefersTo:=refersToFormula
+End Sub
+
+'/**
 ' * Makes the header row bold
 ' */
 Sub BoldHeaderRow()
