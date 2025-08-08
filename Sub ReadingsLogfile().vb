@@ -306,8 +306,21 @@ Sub CreatePressurePowerChart()
     Exit Sub
     
 ErrorHandler:
-    EnableChartDebugLogging IIf(ActiveWorkbook Is Nothing, CurDir(), ActiveWorkbook.Path)
-    Call LogDebug("ERROR: " & Err.Number & " - " & Err.Description)
+    ' Write error directly to log without relying on LogDebug
+    On Error Resume Next
+    Dim __logPath As String, __ff As Integer
+    If Not ActiveWorkbook Is Nothing Then
+        __logPath = ActiveWorkbook.Path
+    Else
+        __logPath = CurDir()
+    End If
+    If Right(__logPath, 1) <> Application.PathSeparator Then __logPath = __logPath & Application.PathSeparator
+    __logPath = __logPath & "phx42_chart_debug.log"
+    __ff = FreeFile
+    Open __logPath For Append As #__ff
+    Print #__ff, Format(Now, "yyyy-mm-dd hh:nn:ss"), "ERROR:", Err.Number, Err.Description
+    Close #__ff
+    On Error GoTo 0
     MsgBox "Error in CreatePressurePowerChart: " & Err.Description, vbExclamation
 End Sub
 
