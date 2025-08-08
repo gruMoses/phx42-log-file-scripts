@@ -49,6 +49,8 @@ Sub CreatePressurePowerChart()
     
     Dim dataWs As Worksheet
     Set dataWs = ActiveSheet
+    Dim dataWb As Workbook
+    Set dataWb = dataWs.Parent
     
     ' Determine last row and last column
     Dim lastRow As Long, lastCol As Long
@@ -81,10 +83,10 @@ Sub CreatePressurePowerChart()
     ' Create or clear chart sheet
     Dim chartWs As Worksheet
     On Error Resume Next
-    Set chartWs = ThisWorkbook.Worksheets("PressurePowerChart")
+    Set chartWs = dataWb.Worksheets("PressurePowerChart")
     On Error GoTo ErrorHandler
     If chartWs Is Nothing Then
-        Set chartWs = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        Set chartWs = dataWb.Worksheets.Add(After:=dataWb.Sheets(dataWb.Sheets.Count))
         chartWs.Name = "PressurePowerChart"
     Else
         chartWs.Cells.Clear
@@ -108,30 +110,31 @@ Sub CreatePressurePowerChart()
     chartWsName = chartWs.Name
     
     ' Helper names
-    AddOrReplaceName "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
-    AddOrReplaceName "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
-    AddOrReplaceName "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
+    AddOrReplaceNameInWb dataWb, "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
+    AddOrReplaceNameInWb dataWb, "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
+    AddOrReplaceNameInWb dataWb, "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
     
     ' X values
-    AddOrReplaceName "PP_X", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colTime).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+    AddOrReplaceNameInWb dataWb, "PP_X", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colTime).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     
     ' Series named ranges (only if columns exist)
     If colSPress > 0 Then
-        AddOrReplaceName "PP_sPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+        AddOrReplaceNameInWb dataWb, "PP_sPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     If colCPress > 0 Then
-        AddOrReplaceName "PP_cPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+        AddOrReplaceNameInWb dataWb, "PP_cPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     If colSPPL > 0 Then
-        AddOrReplaceName "PP_sPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+        AddOrReplaceNameInWb dataWb, "PP_sPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     If colCPPL > 0 Then
-        AddOrReplaceName "PP_cPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
+        AddOrReplaceNameInWb dataWb, "PP_cPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
     End If
     
     ' Create the chart
     Dim co As ChartObject
-    Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=chartWs.UsedRange.Width * 8, Height:=420)
+    ' Use a fixed, visible size so the chart renders clearly on a cleared sheet
+    Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=1200, Height:=500)
     co.Name = "PressurePowerChartObject"
     
     With co.Chart
@@ -2007,3 +2010,11 @@ End Sub
 
 
 
+
+' Adds a workbook-level name in the specified workbook, replacing it if it exists
+Private Sub AddOrReplaceNameInWb(ByVal wb As Workbook, ByVal nameText As String, ByVal refersToFormula As String)
+    On Error Resume Next
+    wb.Names(nameText).Delete
+    On Error GoTo 0
+    wb.Names.Add Name:=nameText, RefersTo:=refersToFormula
+End Sub
