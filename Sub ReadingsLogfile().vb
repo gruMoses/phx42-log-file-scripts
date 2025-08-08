@@ -194,43 +194,15 @@ Sub CreatePressurePowerChart()
     chartWs.Range("A4").Value = "Tip: Use the scroll bars to pan/zoom."
     chartWs.Range("A5").Value = "Primary axis: Pressures (sPress, cPress). Secondary axis: Pump power (sPPL, cPPL)."
     
-    ' Build robust named ranges for X and Y series with clamped offsets
-    Dim dataWsName As String, chartWsName As String
-    dataWsName = dataWs.Name
-    chartWsName = chartWs.Name
-    
-    ' Helper names
-    Call StepTag("creating names")
-    Call StepTag("name PP_TotalRows")
-    AddOrReplaceNameInWb dataWb, "PP_TotalRows", "=MAX(COUNTA('" & dataWsName & "'!$A:$A)-1,1)"
-    Call StepTag("name PP_StartOffset")
-    AddOrReplaceNameInWb dataWb, "PP_StartOffset", "=MIN(MAX('" & chartWsName & "'!$B$1,0), MAX(PP_TotalRows-'" & chartWsName & "'!$B$2,0))"
-    Call StepTag("name PP_WindowLen")
-    AddOrReplaceNameInWb dataWb, "PP_WindowLen", "=MIN('" & chartWsName & "'!$B$2, PP_TotalRows)"
-    
-    ' X values
-    Call StepTag("name PP_X")
-    AddOrReplaceNameInWb dataWb, "PP_X", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colTime).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
-    
-    ' Series named ranges (only if columns exist)
-    If colSPress > 0 Then
-        Call StepTag("name PP_sPress")
-        AddOrReplaceNameInWb dataWb, "PP_sPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
-    End If
-    If colCPress > 0 Then
-        Call StepTag("name PP_cPress")
-        AddOrReplaceNameInWb dataWb, "PP_cPress", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPress).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
-    End If
-    If colSPPL > 0 Then
-        Call StepTag("name PP_sPPL")
-        AddOrReplaceNameInWb dataWb, "PP_sPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colSPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
-    End If
-    If colCPPL > 0 Then
-        Call StepTag("name PP_cPPL")
-        AddOrReplaceNameInWb dataWb, "PP_cPPL", "=OFFSET('" & dataWsName & "'!" & dataWs.Cells(2, colCPPL).Address(False, False) & ", PP_StartOffset, 0, PP_WindowLen, 1)"
-    End If
-    
-    ' Create the chart
+    ' Build ranges directly from the data (no workbook names)
+    Dim xRange As Range
+    Dim rSPress As Range, rCPress As Range, rSPPL As Range, rCPPL As Range
+    Set xRange = dataWs.Range(dataWs.Cells(2, colTime), dataWs.Cells(lastRow, colTime))
+    If colSPress > 0 Then Set rSPress = dataWs.Range(dataWs.Cells(2, colSPress), dataWs.Cells(lastRow, colSPress))
+    If colCPress > 0 Then Set rCPress = dataWs.Range(dataWs.Cells(2, colCPress), dataWs.Cells(lastRow, colCPress))
+    If colSPPL > 0 Then Set rSPPL = dataWs.Range(dataWs.Cells(2, colSPPL), dataWs.Cells(lastRow, colSPPL))
+    If colCPPL > 0 Then Set rCPPL = dataWs.Range(dataWs.Cells(2, colCPPL), dataWs.Cells(lastRow, colCPPL))
+' Create the chart
     Dim co As ChartObject
     ' Use a fixed, visible size so the chart renders clearly on a cleared sheet
     Set co = chartWs.ChartObjects.Add(Left:=20, Top:=80, Width:=1200, Height:=500)
@@ -247,8 +219,8 @@ Sub CreatePressurePowerChart()
         If colSPress > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "sPress"
-                .XValues = "=PP_X"
-                .Values = "=PP_sPress"
+                .XValues = xRange
+                .Values = rSPress
                 .AxisGroup = xlPrimary
                 .Format.Line.ForeColor.RGB = RGB(33, 150, 243) ' blue
                 .Format.Line.Weight = 2.25
@@ -257,8 +229,8 @@ Sub CreatePressurePowerChart()
         If colCPress > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "cPress"
-                .XValues = "=PP_X"
-                .Values = "=PP_cPress"
+                .XValues = xRange
+                .Values = rCPress
                 .AxisGroup = xlPrimary
                 .Format.Line.ForeColor.RGB = RGB(76, 175, 80) ' green
                 .Format.Line.Weight = 2.25
@@ -269,8 +241,8 @@ Sub CreatePressurePowerChart()
         If colSPPL > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "sPPL"
-                .XValues = "=PP_X"
-                .Values = "=PP_sPPL"
+                .XValues = xRange
+                .Values = rSPPL
                 .AxisGroup = xlSecondary
                 .Format.Line.ForeColor.RGB = RGB(255, 152, 0) ' orange
                 .Format.Line.Weight = 2.25
@@ -279,8 +251,8 @@ Sub CreatePressurePowerChart()
         If colCPPL > 0 Then
             With .SeriesCollection.NewSeries
                 .Name = "cPPL"
-                .XValues = "=PP_X"
-                .Values = "=PP_cPPL"
+                .XValues = xRange
+                .Values = rCPPL
                 .AxisGroup = xlSecondary
                 .Format.Line.ForeColor.RGB = RGB(233, 30, 99) ' pink/red
                 .Format.Line.Weight = 2.25
@@ -303,32 +275,9 @@ Sub CreatePressurePowerChart()
     End With
     
     Call StepTag("scrollbars start")
-    ' Add scroll bars for pan/zoom
-    Dim sbStart As Shape, sbWin As Shape
-    On Error Resume Next
-    Set sbStart = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=20, Top:=30, Width:=400, Height:=16)
-    With sbStart.ControlFormat
-        .Min = 0
-        .Max = Application.WorksheetFunction.Max(1, (lastRow - 1) - chartWs.Range("B2").Value)
-        .SmallChange = 1
-        .LargeChange = Application.WorksheetFunction.Max(10, chartWs.Range("B2").Value \ 10)
-        .LinkedCell = chartWs.Range("B1").Address
-    End With
-    
-    Set sbWin = chartWs.Shapes.AddFormControl(Type:=xlScrollBar, Left:=440, Top:=30, Width:=400, Height:=16)
-    On Error GoTo 0
-    On Error Resume Next
-    With sbWin.ControlFormat
-        .Min = 50
-        .Max = Application.WorksheetFunction.Max(100, lastRow - 1)
-        .SmallChange = 10
-        .LargeChange = 100
-        .LinkedCell = chartWs.Range("B2").Address
-    End With
-    
-    ' Display basic labels over the scrollbars
-    chartWs.Range("C1").Value = "← pan →"
-    chartWs.Range("H1").Value = "zoom"
+    ' Scrollbars disabled on macOS for stability
+chartWs.Range("C1").Value = "Use Cmd+MouseWheel or trackpad pinch to zoom; drag chart axes to pan"
+    chartWs.Range("H1").Value = ""
     On Error GoTo ErrorHandler
     
     chartWs.Activate
