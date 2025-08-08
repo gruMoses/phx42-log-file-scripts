@@ -1401,15 +1401,16 @@ Sub ParseFirmwareLogContents(targetWorkbook As Workbook)
     ' Auto-fit columns
     ws.Columns("A:D").AutoFit
     
-    ' Sort the data by time (column B) if we have data
+    ' Sort the data by date (column A) and then time (column B) if we have data
     If row > 2 Then
         ' Define the range to sort (from row 2 to the last data row, columns A to D)
         Dim sortRange As Range
         Set sortRange = ws.Range("A2:D" & (row - 1))
         
-        ' Sort by time column (B) in ascending order
+        ' Sort by date (A) then time (B) in ascending order
         With ws.Sort
             .SortFields.Clear
+            .SortFields.Add Key:=ws.Range("A2"), Order:=xlAscending
             .SortFields.Add Key:=ws.Range("B2"), Order:=xlAscending
             .SetRange sortRange
             .Header = xlNo
@@ -1599,7 +1600,7 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
     Dim linesRead As Long
     linesRead = 0
     
-    ' Read each line
+        ' Read each line
     Do While Not EOF(fileNum)
         Line Input #fileNum, lineText
         linesRead = linesRead + 1
@@ -1608,34 +1609,8 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
         If Trim(lineText) <> "" Then
             ' Try to parse the log entry
             If ParseLogEntry(lineText, logDate, logTime, message) Then
-                            ' Debug: Check if this is a shutdown message
-            If InStr(1, UCase(message), "OUTMSG: SHUT") > 0 Then
-                ws.Cells(row, 5).value = "SHUTDOWN FOUND - Date: " & logDate & " Cutoff: " & cutoffDate
-                
-                ' Debug: Write to main sheet
-                ActiveWorkbook.Sheets(1).Cells(2, 9).Value = "SHUTDOWN FOUND IN PARSE - Date: " & logDate & " Message: " & Left(message, 50)
-                
-                ' Check for specific filter missing message
-                If InStr(1, UCase(message), "FEELS LIKE YOU JUST REMOVED MY FILTER") > 0 And _
-                   InStr(1, UCase(message), "PLEASE GIVE ME A FRESH FILTER") > 0 Then
-                    ActiveWorkbook.Sheets(1).Cells(2, 11).Value = "FILTER MISSING FOUND IN PARSE - Date: " & logDate & " Time: " & logTime
-                    
-                    ' Debug: Check if this entry will be written to the sheet
-                    If logDate >= cutoffDate - 7 Then
-                        ActiveWorkbook.Sheets(1).Cells(2, 13).Value = "WILL BE WRITTEN TO SHEET"
-                    Else
-                        ActiveWorkbook.Sheets(1).Cells(2, 13).Value = "WILL BE FILTERED OUT"
-                    End If
-                End If
-            End If
-                
                 ' Check if entry is from current date or within 7 days before
                 If logDate >= cutoffDate - 7 Then
-                    ' Debug: Check if this is the filter missing message
-                    If InStr(1, UCase(message), "FEELS LIKE YOU JUST REMOVED MY FILTER") > 0 Then
-                        ActiveWorkbook.Sheets(1).Cells(2, 15).Value = "WRITING FILTER MISSING TO SHEET AT ROW " & row
-                    End If
-                    
                     ' Add to worksheet
                     ws.Cells(row, 1).value = logDate
                     ws.Cells(row, 2).value = logTime
@@ -1647,10 +1622,6 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
                     
                     row = row + 1
                     totalEntries = totalEntries + 1
-                Else
-                    ' Debug: Mark filtered out entries
-                    ws.Cells(row, 6).value = "FILTERED OUT - Date: " & logDate & " Cutoff: " & cutoffDate
-                    row = row + 1
                 End If
             End If
         End If
@@ -1659,12 +1630,7 @@ Sub ParseSingleFirmwareLog(filePath As String, ws As Worksheet, ByRef row As Lon
     ' Close the file
     Close fileNum
     
-    ' Debug: Add file info to worksheet for tracking
-    ws.Cells(row, 1).value = "=== FILE PROCESSED ==="
-    ws.Cells(row, 2).value = fileName
-    ws.Cells(row, 3).value = "Lines read: " & linesRead
-    ws.Cells(row, 4).value = "Total entries so far: " & totalEntries
-    row = row + 1
+    ' Finished processing file
     
     Exit Sub
     
