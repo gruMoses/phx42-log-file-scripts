@@ -71,6 +71,27 @@ Sub CreatePressurePowerChart()
     colSPPL = FindHeaderColumn(dataWs, "sPPL")
     colCPPL = FindHeaderColumn(dataWs, "cPPL")
     
+    ' If not found on the active sheet, auto-detect a worksheet with required headers
+    If (colSPress = 0 And colCPress = 0) Or (colSPPL = 0 And colCPPL = 0) Then
+        Dim wsCandidate As Worksheet
+        Dim tSPress As Long, tCPress As Long, tSPPL As Long, tCPPL As Long
+        For Each wsCandidate In dataWb.Worksheets
+            ' Skip temporary chart sheet name if it exists later
+            tSPress = FindHeaderColumn(wsCandidate, "sPress")
+            tCPress = FindHeaderColumn(wsCandidate, "cPress")
+            tSPPL = FindHeaderColumn(wsCandidate, "sPPL")
+            tCPPL = FindHeaderColumn(wsCandidate, "cPPL")
+            If (tSPress > 0 Or tCPress > 0) And (tSPPL > 0 Or tCPPL > 0) Then
+                Set dataWs = wsCandidate
+                colSPress = tSPress
+                colCPress = tCPress
+                colSPPL = tSPPL
+                colCPPL = tCPPL
+                Exit For
+            End If
+        Next wsCandidate
+    End If
+    
     If colSPress = 0 And colCPress = 0 Then
         MsgBox "Could not find pressure columns (sPress/cPress) in the header row.", vbExclamation
         Exit Sub
