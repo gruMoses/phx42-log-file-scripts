@@ -91,7 +91,6 @@ End Function
 
 Private Sub StepTag(ByVal tag As String)
     g_Step = tag
-    Call LogDebug("STEP: " & tag)
 End Sub
 
 '/**
@@ -103,11 +102,12 @@ End Sub
 ' */
 Sub CreatePressurePowerChart()
     On Error GoTo ErrorHandler
+    g_Step = "init"
     
     Dim wbPath As String
     wbPath = GetActiveWorkbookPath()
     EnableChartDebugLogging wbPath
-    Call StepTag("enter")
+    g_Step = "enter"
     Dim dataWs As Worksheet
     Set dataWs = ActiveSheet
     Call LogDebug("ActiveSheet name=" & dataWs.Name)
